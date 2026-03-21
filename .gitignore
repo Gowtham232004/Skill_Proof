@@ -59,3 +59,8 @@ out/
 
 # Frontend (has its own repo)
 frontend/
+
+# Sensitive files with hardcoded secrets
+generate_token.py
+*.key
+*.pem
