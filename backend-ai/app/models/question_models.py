@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 
 
@@ -11,10 +11,14 @@ class GenerateQuestionsRequest(BaseModel):
 
 
 class GeneratedQuestion(BaseModel):
-    question_number: int       # 1-5
+    # Pydantic v2: Use validation_alias for input (camelCase from Groq)
+    # Serialization uses field names (snake_case for Java)
+    model_config = ConfigDict(populate_by_name=True)
+    
+    question_number: int = Field(..., validation_alias='questionNumber')       # 1-5
     difficulty: str            # EASY, MEDIUM, HARD
-    file_reference: str        # Specific file this question targets
-    question_text: str         # The actual question
+    file_reference: str = Field(..., validation_alias='fileReference')        # Specific file this question targets
+    question_text: str = Field(..., validation_alias='questionText')         # The actual question
 
 
 class GenerateQuestionsResponse(BaseModel):

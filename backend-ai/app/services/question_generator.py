@@ -42,12 +42,38 @@ Difficulties: 2 EASY, 2 MEDIUM, 1 HARD."""
             max_tokens=1500,
         )
         raw = response.choices[0].message.content.strip()
+        logger.info(f"Raw Groq response: {raw[:200]}...")  # Log first 200 chars for debugging
+        
         # Clean markdown if present
         if "```" in raw:
-            raw = raw.split("```")[1]
+            # Extract content between first and last backticks
+            start = raw.find("```") + 3
+            end = raw.rfind("```")
+            raw = raw[start:end].strip()
+            
+            # Remove 'json' language identifier if at the start
             if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw.strip())
+                raw = raw[4:].strip()
+        
+        logger.info(f"Parsed JSON: {raw[:200]}...")  # Log parsed content
+        parsed = json.loads(raw.strip())
+        logger.info(f"Successfully generated {len(parsed)} questions")
+        
+        # Validate and fix field names if needed
+        for q in parsed:
+            # Ensure all required fields exist
+            if 'questionNumber' not in q and 'question_number' in q:
+                q['questionNumber'] = q.pop('question_number')
+            if 'fileReference' not in q and 'file_reference' in q:
+                q['fileReference'] = q.pop('file_reference')
+            if 'questionText' not in q and 'question_text' in q:
+                q['questionText'] = q.pop('question_text')
+        
+        return parsed
+    except json.JSONDecodeError as e:
+        logger.error(f"Groq question generation failed - JSON parse error: {e}")
+        logger.error(f"Attempted to parse: {raw[:500]}")
+        return []
     except Exception as e:
         logger.error(f"Groq question generation failed: {e}")
         return []
