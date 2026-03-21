@@ -215,11 +215,7 @@ Go to `github.com/settings/developers` → New OAuth App:
 
 ---
 
-## Built By
 
-**Gowtham M S**  
-B.Tech CSE, 6th Semester — REVA University, Bengaluru  
-Final Year Capstone Project — 2026
 
 ---
 
