@@ -89,19 +89,61 @@ public class SubmitAnswersService {
             session.getId(), answersForAi, session.getRepoLanguage()
         );
 
-        // 5. Extract scores from AI response
-        int overallScore     = extractScore(evaluationResult, "overall_score", 50);
-        int backendScore     = extractNestedScore(evaluationResult, "skill_scores", "backend_score", 50);
-        int apiScore         = extractNestedScore(evaluationResult, "skill_scores", "api_design_score", 50);
-        int errorScore       = extractNestedScore(evaluationResult, "skill_scores", "error_handling_score", 50);
-        int qualityScore     = extractNestedScore(evaluationResult, "skill_scores", "code_quality_score", 50);
-        int documentScore    = extractNestedScore(evaluationResult, "skill_scores", "documentation_score", 50);
-
-        // 6. Update saved answers with AI scores
+        // 5. Update saved answers with AI scores and extract evaluation results
         List<BadgeResponse.QuestionResultDto> questionResults =
             updateAnswersWithScores(savedAnswers, evaluationResult, questions);
 
-        // 7. Create badge
+        // 6. Compute individual skill scores from answer rubric scores
+        // Map: Q1→backend, Q2→api, Q3→error, Q4→quality, Q5→documentation
+        int total = 0;
+        int backendRaw = 0, apiRaw = 0, errorRaw = 0, qualityRaw = 0, docsRaw = 0;
+
+        List<?> aiResults = (List<?>) evaluationResult.getOrDefault("results", List.of());
+        log.debug("AI evaluation response keys: {}", evaluationResult.keySet());
+        log.debug("AI results list size: {}", aiResults.size());
+        
+        for (int i = 0; i < Math.min(aiResults.size(), savedAnswers.size()); i++) {
+            Object resultObj = aiResults.get(i);
+            if (!(resultObj instanceof Map)) {
+                log.debug("Result {} is not a Map, skipping", i);
+                continue;
+            }
+            
+            Map<?, ?> resultMap = (Map<?, ?>) resultObj;
+            log.debug("Result {} keys: {}", i, resultMap.keySet());
+            
+            int accuracy    = toInt(resultMap.get("accuracy_score"), 5);
+            int depth       = toInt(resultMap.get("depth_score"), 5);
+            int specificity = toInt(resultMap.get("specificity_score"), 5);
+            
+            log.debug("Q{}: accuracy={}, depth={}, specificity={}", i+1, accuracy, depth, specificity);
+            
+            // Weighted rubric: accuracy 40%, depth 30%, specificity 30% (scale 1-10)
+            int questionScore = (accuracy * 4 + depth * 3 + specificity * 3) / 10;
+            total += questionScore;
+            
+            // Distribute questions to skill dimensions by index
+            switch (i) {
+                case 0 -> backendRaw = questionScore;       // Q1 → backend logic
+                case 1 -> apiRaw = questionScore;           // Q2 → api design
+                case 2 -> errorRaw = questionScore;         // Q3 → error handling
+                case 3 -> qualityRaw = questionScore;       // Q4 → code quality
+                case 4 -> docsRaw = questionScore;          // Q5 → documentation
+            }
+        }
+
+        // Convert from 1-10 scale to 0-100 scale
+        int overallScore     = aiResults.isEmpty() ? 50 : (total * 10) / aiResults.size();
+        int backendScore     = backendRaw * 10;
+        int apiScore         = apiRaw * 10;
+        int errorScore       = errorRaw * 10;
+        int qualityScore     = qualityRaw * 10;
+        int documentScore    = docsRaw * 10;
+        
+        log.info("Skill scores computed: backend={}, api={}, error={}, quality={}, docs={}", 
+            backendScore, apiScore, errorScore, qualityScore, documentScore);
+
+        // 7. Create badge with properly distributed skill scores
         Badge badge = badgeService.createBadge(
             session, overallScore, backendScore, apiScore,
             errorScore, qualityScore, documentScore
@@ -141,7 +183,7 @@ public class SubmitAnswersService {
         for (Answer answer : answers) {
             Question question = answer.getQuestion();
             Map<String, Object> item = new HashMap<>();
-            item.put("question_id", answer.getId());
+            item.put("question_id", question.getQuestionNumber());  // Use question number (1-5), not answer DB ID
             item.put("question_text", question.getQuestionText());
             item.put("file_reference", question.getFileReference());
             item.put("code_context",

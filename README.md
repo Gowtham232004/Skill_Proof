@@ -129,54 +129,38 @@ npm run dev
 
 ## Environment Configuration
 
-### Step 1: GitHub OAuth App Setup
-
-1. Go to `https://github.com/settings/developers`
-2. Click **New OAuth App**
-3. Fill in:
-   - **Application name:** SkillProof
-   - **Homepage URL:** `http://localhost:3000`
-   - **Authorization callback URL:** `http://localhost:8080/api/auth/github/callback`
-4. Click **Create**
-5. Copy your **Client ID** and **Client Secret**
-
-### Step 2: Backend Core Configuration
-
-1. Create `backend-core/src/main/resources/application-local.yml` (never commit this file):
+### `backend-core/src/main/resources/application.yml`
 
 ```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/skillproof
+    username: skillproof_user
+    password: skillproof123
+
 github:
   client-id: YOUR_GITHUB_CLIENT_ID
   client-secret: YOUR_GITHUB_CLIENT_SECRET
+  redirect-uri: http://localhost:8080/api/auth/github/callback
 
 jwt:
-  secret: YOUR_JWT_SECRET_MIN_64_CHARS
+  secret: YOUR_JWT_SECRET_MIN_32_CHARS
 
-spring:
-  datasource:
-    password: skillproof123
+ai-service:
+  url: http://localhost:8000
 ```
 
-**Note:** This file overrides values in `application.yml` at runtime. It's listed in `.gitignore` and never committed for security.
-
-### Step 3: AI Service Configuration
-
-Create `backend-ai/.env`:
+### `backend-ai/.env`
 
 ```
-GROQ_API_KEY=your_groq_api_key_from_console.groq.com
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
-Get your Groq API key from: `https://console.groq.com/keys`
+### GitHub OAuth App Settings
 
-### Step 4: Frontend Configuration (Optional)
-
-If needed, create `frontend/.env.local`:
-
-```
-NEXT_PUBLIC_API_URL=http://localhost:8080
-NEXT_PUBLIC_GITHUB_CLIENT_ID=YOUR_GITHUB_CLIENT_ID
-```
+Go to `github.com/settings/developers` → New OAuth App:
+- Homepage URL: `http://localhost:3000`
+- Callback URL: `http://localhost:8080/api/auth/github/callback`
 
 ---
 

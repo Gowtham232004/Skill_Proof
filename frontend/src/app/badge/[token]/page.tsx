@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
+import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import { getBadge } from '@/lib/api'
 
 interface BadgeData {
@@ -99,7 +100,7 @@ export default function BadgePage() {
         <div style={{ display: 'flex', gap: 10 }}>
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             onClick={handleCopy}
-            style={{ padding: '8px 16px', background: copied ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${copied ? 'rgba(52,211,153,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 8, color: copied ? '#34D399' : 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit, sans-serif', transition: 'all 0.2s' }}>
+            style={{ padding: '8px 16px', background: copied ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${copied ? 'rgba(52,211,153,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 8, color: copied ? '#34D399' : 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit, sans-serif' }}>
             {copied ? '✓ Copied!' : '⎘ Share Badge'}
           </motion.button>
           <motion.button whileHover={{ scale: 1.02 }} onClick={() => router.push('/verify')}
@@ -183,26 +184,72 @@ export default function BadgePage() {
               </div>
             </div>
 
-            {/* Skill scores */}
+            {/* Skill breakdown — Radar Chart */}
             <div style={{ marginBottom: 24 }}>
-              {SKILLS.map((skill, i) => (
-                <div key={skill.key} style={{ marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>{skill.label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: skill.color, fontFamily: 'JetBrains Mono, monospace' }}>
-                      {(badge as any)[skill.key]}
-                    </span>
-                  </div>
-                  <div style={{ height: 5, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(badge as any)[skill.key]}%` }}
-                      transition={{ duration: 1.2, delay: i * 0.1, ease: 'easeOut' }}
-                      style={{ height: '100%', background: skill.color, borderRadius: 3, boxShadow: `0 0 8px ${skill.color}50` }}
-                    />
+              <h3 style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.45)', marginBottom: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Skill Breakdown
+              </h3>
+              
+              {/* Radar Chart */}
+              {badge && (
+                <div style={{ background: 'rgba(212,255,0,0.02)', border: '1px solid rgba(212,255,0,0.08)', borderRadius: 16, padding: 16, marginBottom: 12 }}>
+                  <div style={{ width: '100%', height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <RadarChart
+                        data={[
+                          { skill: 'Backend', score: badge.backendScore || badge.overallScore },
+                          { skill: 'API Design', score: badge.apiDesignScore || badge.overallScore },
+                          { skill: 'Error Handling', score: badge.errorHandlingScore || badge.overallScore },
+                          { skill: 'Code Quality', score: badge.codeQualityScore || badge.overallScore },
+                          { skill: 'Documentation', score: badge.documentationScore || badge.overallScore },
+                        ]}
+                        margin={{ top: 10, right: 20, bottom: 10, left: 20 }}
+                      >
+                        <PolarGrid stroke="rgba(255,255,255,0.05)" />
+                        <PolarAngleAxis
+                          dataKey="skill"
+                          tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}
+                        />
+                        <Radar
+                          name="Score"
+                          dataKey="score"
+                          stroke="#D4FF00"
+                          fill="#D4FF00"
+                          fillOpacity={0.15}
+                          strokeWidth={2}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: '#0A0A0A',
+                            border: '1px solid #D4FF00',
+                            borderRadius: '6px',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: '12px',
+                            color: '#D4FF00',
+                            padding: '8px 12px',
+                          }}
+                          formatter={(value) => [`${Math.round(Number(value) || 0)}/100`, 'Score']}
+                          labelStyle={{ color: 'rgba(255,255,255,0.5)' }}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-              ))}
+              )}
+              
+              {/* Skill score pills */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12 }}>
+                {SKILLS.map((skill) => (
+                  <div key={skill.key} style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.03)', border: `1px solid ${skill.color}20`, borderRadius: 12, textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: skill.color, fontFamily: 'JetBrains Mono, monospace', marginBottom: 4 }}>
+                      {(badge as any)[skill.key]}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>
+                      {skill.label}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Verification metadata */}

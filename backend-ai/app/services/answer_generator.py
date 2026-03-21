@@ -16,18 +16,21 @@ REQUEST_DELAY = 0.3  # 300ms between requests
 
 def detect_gibberish(text: str) -> bool:
     """Detect if answer is gibberish (random characters, no real words)."""
-    if len(text) < 10:
-        return False
+    text = text.strip()
+    
+    # Hard reject: too short to be meaningful
+    if len(text) < 15:
+        return True
     
     # Count letters vs non-letters
     letters = sum(1 for c in text if c.isalpha())
     letter_ratio = letters / len(text) if len(text) > 0 else 0
     
-    # If less than 30% letters, likely gibberish
-    if letter_ratio < 0.3:
+    # If less than 40% letters, likely gibberish or garbage
+    if letter_ratio < 0.4:
         return True
     
-    # Check for repeated patterns (e.g. "asdfasdfasdf" or "aaaaaaa")
+    # Check for repeated patterns (e.g "asdfasdfasdf" or "aaaaaaa")
     if re.search(r'(.{1,3})\1{3,}', text):  # Same 1-3 chars repeated 4+ times
         return True
     
@@ -35,8 +38,13 @@ def detect_gibberish(text: str) -> bool:
     vowels = sum(1 for c in text.lower() if c in 'aeiou')
     vowel_ratio = vowels / letters if letters > 0 else 0
     
-    # Real text has at least 20% vowels among letters
-    if vowel_ratio < 0.2 and letters > 20:
+    # Real text has at least 25% vowels among letters (lowered from 30%)
+    if vowel_ratio < 0.25 and letters > 10:
+        return True
+    
+    # Check for lack of common words/patterns - if mostly consonant clusters, likely gibberish
+    consonant_clusters = len(re.findall(r'[bcdfghjklmnprstvwxz]{3,}', text.lower()))
+    if consonant_clusters > len(text) / 20:  # More than 5% of text is consonant clusters
         return True
     
     return False
@@ -71,13 +79,13 @@ def evaluate_answers(questions_and_answers: list, code_summary: str):
 
         answer_len = len(answer_text)
 
-        # Hard reject: too short
+        # Hard reject: too short (score 0)
         if answer_len < 10:
-            accuracy, depth, specificity = 1, 1, 1
+            accuracy, depth, specificity = 0, 0, 0
             feedback = "Answer too short to evaluate."
-        # Detect gibberish
+        # Detect gibberish (score 0)
         elif detect_gibberish(answer_text):
-            accuracy, depth, specificity = 1, 1, 1
+            accuracy, depth, specificity = 0, 0, 0
             feedback = "Your answer appears to be gibberish or random characters. Please provide a real answer."
             logger.warning(f"Q{question_id}: Gibberish detected - '{answer_text[:30]}'")
         else:
@@ -122,9 +130,9 @@ Return ONLY JSON:
                     json_str = raw[start:end].strip()
                     scored = json.loads(json_str)
 
-                    accuracy = min(10, max(1, int(scored.get("accuracyScore", 5))))
-                    depth = min(10, max(1, int(scored.get("depthScore", 5))))
-                    specificity = min(10, max(1, int(scored.get("specificityScore", 5))))
+                    accuracy = min(10, max(0, int(scored.get("accuracyScore", 5))))
+                    depth = min(10, max(0, int(scored.get("depthScore", 5))))
+                    specificity = min(10, max(0, int(scored.get("specificityScore", 5))))
                     feedback = str(scored.get("feedback", "Evaluated."))[:100]
 
                     logger.debug(f"Q{question_id}: acc={accuracy} dep={depth} spec={specificity}")
@@ -162,12 +170,20 @@ Return ONLY JSON:
         else:
             scores['documentation_score'].append(accuracy)
 
-    # Calculate skill scores
-    backend_score = int(sum(scores['backend_score']) / max(len(scores['backend_score']), 1)) if scores['backend_score'] else 3
-    api_design_score = int(sum(scores['api_design_score']) / max(len(scores['api_design_score']), 1)) if scores['api_design_score'] else 3
-    error_handling_score = int(sum(scores['error_handling_score']) / max(len(scores['error_handling_score']), 1)) if scores['error_handling_score'] else 3
-    code_quality_score = int(sum(scores['code_quality_score']) / max(len(scores['code_quality_score']), 1)) if scores['code_quality_score'] else 3
-    documentation_score = int(sum(scores['documentation_score']) / max(len(scores['documentation_score']), 1)) if scores['documentation_score'] else 3
+    # Calculate skill scores (convert 1-10 scale to 0-100 scale)
+    # Each skill gets the average accuracy score from its assigned question(s), scaled to 0-100
+    backend_score = int((sum(scores['backend_score']) / max(len(scores['backend_score']), 1)) * 10) if scores['backend_score'] else 50
+    api_design_score = int((sum(scores['api_design_score']) / max(len(scores['api_design_score']), 1)) * 10) if scores['api_design_score'] else 50
+    error_handling_score = int((sum(scores['error_handling_score']) / max(len(scores['error_handling_score']), 1)) * 10) if scores['error_handling_score'] else 50
+    code_quality_score = int((sum(scores['code_quality_score']) / max(len(scores['code_quality_score']), 1)) * 10) if scores['code_quality_score'] else 50
+    documentation_score = int((sum(scores['documentation_score']) / max(len(scores['documentation_score']), 1)) * 10) if scores['documentation_score'] else 50
+
+    # Cap all scores at 100
+    backend_score = min(100, backend_score)
+    api_design_score = min(100, api_design_score)
+    error_handling_score = min(100, error_handling_score)
+    code_quality_score = min(100, code_quality_score)
+    documentation_score = min(100, documentation_score)
 
     overall = int((backend_score + api_design_score + error_handling_score + code_quality_score + documentation_score) / 5)
 
