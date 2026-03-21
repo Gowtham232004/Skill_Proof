@@ -4,13 +4,11 @@ server:
 spring:
   application:
     name: skillproof-backend
-    profiles:
-      active: local
 
   datasource:
     url: jdbc:mysql://localhost:3306/skillproof?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
     username: skillproof_user
-    password: ${DB_PASSWORD:skillproof123}
+    password: skillproof123
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -27,16 +25,16 @@ spring:
     user:
       name: disabled
 
-# GitHub OAuth App credentials — set in application-local.yml
+# GitHub OAuth App credentials — replace with your actual values
 github:
-  client-id: ${GITHUB_CLIENT_ID:REPLACE_ME}
-  client-secret: ${GITHUB_CLIENT_SECRET:REPLACE_ME}
+  client-id: ${GITHUB_CLIENT_ID:Ov23ligqK4lub20Xlo5J}
+  client-secret: ${GITHUB_CLIENT_SECRET:1a9419ba8d7fdd4fead190bea958c27f7434b6f1}
   redirect-uri: http://localhost:8080/api/auth/github/callback
   scope: read:user,public_repo
 
-# JWT settings — set in application-local.yml
+# JWT settings
 jwt:
-  secret: ${JWT_SECRET:REPLACE_ME_WITH_64_CHAR_SECRET}
+  secret: ${JWT_SECRET:7f9a2b8c1d4e6f0a9c3b5d7e8f1a2c4e6b8d9f0a1c3e5b7d9f2a4c6e8b1d3f5}
   expiration-ms: 86400000     # 24 hours in milliseconds
   refresh-expiration-ms: 604800000  # 7 days
 

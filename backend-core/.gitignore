@@ -36,6 +36,7 @@ build/
 *.env
 .env.local
 .env.production
+application-local.yml
 
 # Java / Maven
 backend-core/target/
