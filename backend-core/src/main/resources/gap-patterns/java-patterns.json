@@ -1,0 +1,96 @@
+{
+  "patterns": [
+    {
+      "id": "SEC001",
+      "dimension": "security",
+      "severity": "CRITICAL",
+      "name": "Hardcoded credentials",
+      "description": "Database password or API key hardcoded in source file",
+      "regex": "(password|secret|api_key|apikey)\\s*=\\s*[\"'][^\"']{4,}[\"']",
+      "fix": "Move credentials to environment variables using @Value(\"${property.name}\")",
+      "resource": "Spring Boot Externalized Configuration — docs.spring.io",
+      "estimatedHours": 1
+    },
+    {
+      "id": "ERR001",
+      "dimension": "errorHandling",
+      "severity": "IMPORTANT",
+      "name": "Empty catch block",
+      "description": "Exception caught but silently ignored",
+      "regex": "catch\\s*\\([^)]+\\)\\s*\\{\\s*\\}",
+      "fix": "Log the exception or rethrow with context: log.error(\"Failed: {}\", e.getMessage(), e)",
+      "resource": "Effective Java — Item 77: Don't ignore exceptions",
+      "estimatedHours": 2
+    },
+    {
+      "id": "ERR002",
+      "dimension": "errorHandling",
+      "severity": "IMPORTANT",
+      "name": "Missing global exception handler",
+      "description": "No @ControllerAdvice or @RestControllerAdvice found in project",
+      "regex": "@ControllerAdvice|@RestControllerAdvice",
+      "negated": true,
+      "fix": "Create a GlobalExceptionHandler class with @RestControllerAdvice",
+      "resource": "Spring Boot Exception Handling — baeldung.com/exception-handling-for-rest-with-spring",
+      "estimatedHours": 3
+    },
+    {
+      "id": "TEST001",
+      "dimension": "testing",
+      "severity": "CRITICAL",
+      "name": "No test files found",
+      "description": "Zero test classes detected in the project",
+      "regex": "@Test|@SpringBootTest|class.*Test\\b",
+      "negated": true,
+      "fix": "Write unit tests using JUnit 5 + Mockito for your service layer",
+      "resource": "JUnit 5 + Mockito crash course — baeldung.com/mockito-series",
+      "estimatedHours": 6
+    },
+    {
+      "id": "SEC002",
+      "dimension": "security",
+      "severity": "CRITICAL",
+      "name": "Missing input validation",
+      "description": "Controller methods accepting request bodies without @Valid annotation",
+      "regex": "@RequestBody(?!.*@Valid).*\\{",
+      "fix": "Add @Valid to @RequestBody parameters and use Bean Validation annotations",
+      "resource": "Spring Validation — baeldung.com/spring-boot-bean-validation",
+      "estimatedHours": 2
+    },
+    {
+      "id": "DB001",
+      "dimension": "database",
+      "severity": "IMPORTANT",
+      "name": "Missing @Transactional on multi-step operations",
+      "description": "Service methods performing multiple DB operations without transaction",
+      "regex": "@Transactional",
+      "negated": true,
+      "fix": "Add @Transactional to service methods that perform multiple database operations",
+      "resource": "Spring @Transactional — baeldung.com/transaction-configuration-with-jpa-and-spring",
+      "estimatedHours": 1
+    },
+    {
+      "id": "QUAL001",
+      "dimension": "codeQuality",
+      "severity": "MINOR",
+      "name": "Missing Javadoc on public methods",
+      "description": "Public methods lack documentation comments",
+      "regex": "/\\*\\*",
+      "negated": true,
+      "fix": "Add Javadoc to public methods: /** @param x description @return description */",
+      "resource": "How to Write Javadoc — oracle.com/technical-resources/articles/java/javadoc-tool.html",
+      "estimatedHours": 2
+    },
+    {
+      "id": "API001",
+      "dimension": "apiDesign",
+      "severity": "IMPORTANT",
+      "name": "Non-standard HTTP status codes",
+      "description": "Endpoints returning 200 for error cases instead of proper 4xx/5xx",
+      "regex": "ResponseEntity\\.ok\\(.*error|ResponseEntity\\.ok\\(.*fail",
+      "fix": "Use ResponseEntity.badRequest(), ResponseEntity.notFound(), or ResponseEntity.status(HttpStatus.X)",
+      "resource": "REST API Best Practices — restfulapi.net/http-status-codes",
+      "estimatedHours": 2
+    }
+  ]
+}

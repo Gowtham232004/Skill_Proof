@@ -385,6 +385,71 @@ function StepAnswerQuestions({
   )
 }
 
+// SkillGapSection Component
+function SkillGapSection({ gaps }: { gaps: string[] }) {
+  const skillIcons: Record<string, { icon: string; color: string; suggestion: string }> = {
+    'API Design': { icon: '🏗️', color: '#60A5FA', suggestion: 'Focus on RESTful principles and endpoint structure' },
+    'Error Handling': { icon: '⚠️', color: '#F59E0B', suggestion: 'Add comprehensive try-catch blocks and validation' },
+    'Code Quality': { icon: '✨', color: '#34D399', suggestion: 'Refactor for clarity, modularity, and maintainability' },
+    'Documentation': { icon: '📝', color: '#F472B6', suggestion: 'Add comments, docstrings, and architectural docs' },
+    'Backend Logic': { icon: '⚙️', color: '#D4FF00', suggestion: 'Strengthen core logic and business rules' },
+    'Performance': { icon: '⚡', color: '#06B6D4', suggestion: 'Optimize algorithms and reduce complexity' },
+    'Testing': { icon: '🧪', color: '#8B5CF6', suggestion: 'Add unit tests and integration tests' },
+    'Security': { icon: '🔒', color: '#EF4444', suggestion: 'Implement proper authentication and input validation' },
+  }
+
+  const getGapInfo = (gap: string) => {
+    for (const [key, value] of Object.entries(skillIcons)) {
+      if (gap.toLowerCase().includes(key.toLowerCase())) {
+        return value
+      }
+    }
+    return { icon: '🎯', color: '#A78BFA', suggestion: 'Work on this skill to improve overall performance' }
+  }
+
+  if (!gaps || gaps.length === 0) return null
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.4)', marginBottom: 12, letterSpacing: '0.1em' }}>
+        RECOMMENDED IMPROVEMENTS
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: gaps.length === 1 ? '1fr' : 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        {gaps.map((gap, i) => {
+          const { icon, color, suggestion } = getGapInfo(gap)
+          return (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: i * 0.1 }}
+              style={{
+                padding: '14px 12px',
+                background: `${color}08`,
+                border: `1px solid ${color}20`,
+                borderRadius: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 24 }}>{icon}</div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: color, fontFamily: 'Outfit, sans-serif', marginBottom: 4 }}>
+                  {gap}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4, fontFamily: 'Outfit, sans-serif' }}>
+                  {suggestion}
+                </div>
+              </div>
+            </motion.div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Step 4: Results
 function StepResults({ result, onNewVerification }: { result: VerifyResult; onNewVerification: () => void }) {
   const router = useRouter()
@@ -447,6 +512,9 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
           ))}
         </div>
       )}
+
+      {/* Skill Gap Recommendations */}
+      <SkillGapSection gaps={result.topGaps || []} />
 
       {/* Badge URL */}
       <div style={{ marginBottom: 24, padding: '16px 18px', background: 'rgba(212,255,0,0.05)', border: '1px solid rgba(212,255,0,0.2)', borderRadius: 12 }}>

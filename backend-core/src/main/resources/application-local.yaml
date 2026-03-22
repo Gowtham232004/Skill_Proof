@@ -1,0 +1,10 @@
+github:
+  client-id: Ov23ligqK4lub20Xlo5J
+  client-secret: 1a9419ba8d7fdd4fead190bea958c27f7434b6f1
+
+jwt:
+  secret: pick-any-64-character-random-string-here
+
+spring:
+  datasource:
+    password: skillproof123

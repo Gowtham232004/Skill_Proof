@@ -2,19 +2,32 @@ package com.skillproof.backend_core.service;
 
 
 
-import com.skillproof.backend_core.dto.request.SubmitAnswersRequest;
-import com.skillproof.backend_core.dto.response.BadgeResponse;
-import com.skillproof.backend_core.dto.response.VerificationResultResponse;
-import com.skillproof.backend_core.model.*;
-import com.skillproof.backend_core.repository.*;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import com.skillproof.backend_core.dto.request.SubmitAnswersRequest;
+import com.skillproof.backend_core.dto.response.BadgeResponse;
+import com.skillproof.backend_core.dto.response.VerificationResultResponse;
+import com.skillproof.backend_core.model.Answer;
+import com.skillproof.backend_core.model.Badge;
+import com.skillproof.backend_core.model.Question;
+import com.skillproof.backend_core.model.VerificationSession;
+import com.skillproof.backend_core.repository.AnswerRepository;
+import com.skillproof.backend_core.repository.QuestionRepository;
+import com.skillproof.backend_core.repository.UserRepository;
+import com.skillproof.backend_core.repository.VerificationSessionRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +40,7 @@ public class SubmitAnswersService {
     private final UserRepository userRepository;
     private final AiGatewayService aiGatewayService;
     private final BadgeService badgeService;
+    private final GapAnalyzerService gapAnalyzerService;
 
     private static final String BADGE_BASE_URL = "http://localhost:3000/badge/";
 
@@ -133,7 +147,7 @@ public class SubmitAnswersService {
         }
 
         // Convert from 1-10 scale to 0-100 scale
-        int overallScore     = aiResults.isEmpty() ? 50 : (total * 10) / aiResults.size();
+        int overallScore     = aiResults.isEmpty() ? 0 : (total * 10) / aiResults.size();
         int backendScore     = backendRaw * 10;
         int apiScore         = apiRaw * 10;
         int errorScore       = errorRaw * 10;
@@ -148,6 +162,10 @@ public class SubmitAnswersService {
             session, overallScore, backendScore, apiScore,
             errorScore, qualityScore, documentScore
         );
+
+        // Trigger gap analysis in background (non-blocking)
+        String codeContent = session.getCodeSummary() != null ? session.getCodeSummary() : "";
+        gapAnalyzerService.analyzeAsync(session.getUser(), session, codeContent);
 
         // 8. Mark session as completed
         session.setStatus(VerificationSession.Status.COMPLETED);

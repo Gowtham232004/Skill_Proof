@@ -172,11 +172,11 @@ Return ONLY JSON:
 
     # Calculate skill scores (convert 1-10 scale to 0-100 scale)
     # Each skill gets the average accuracy score from its assigned question(s), scaled to 0-100
-    backend_score = int((sum(scores['backend_score']) / max(len(scores['backend_score']), 1)) * 10) if scores['backend_score'] else 50
-    api_design_score = int((sum(scores['api_design_score']) / max(len(scores['api_design_score']), 1)) * 10) if scores['api_design_score'] else 50
-    error_handling_score = int((sum(scores['error_handling_score']) / max(len(scores['error_handling_score']), 1)) * 10) if scores['error_handling_score'] else 50
-    code_quality_score = int((sum(scores['code_quality_score']) / max(len(scores['code_quality_score']), 1)) * 10) if scores['code_quality_score'] else 50
-    documentation_score = int((sum(scores['documentation_score']) / max(len(scores['documentation_score']), 1)) * 10) if scores['documentation_score'] else 50
+    backend_score = int((sum(scores['backend_score']) / max(len(scores['backend_score']), 1)) * 10) if scores['backend_score'] else 0
+    api_design_score = int((sum(scores['api_design_score']) / max(len(scores['api_design_score']), 1)) * 10) if scores['api_design_score'] else 0
+    error_handling_score = int((sum(scores['error_handling_score']) / max(len(scores['error_handling_score']), 1)) * 10) if scores['error_handling_score'] else 0
+    code_quality_score = int((sum(scores['code_quality_score']) / max(len(scores['code_quality_score']), 1)) * 10) if scores['code_quality_score'] else 0
+    documentation_score = int((sum(scores['documentation_score']) / max(len(scores['documentation_score']), 1)) * 10) if scores['documentation_score'] else 0
 
     # Cap all scores at 100
     backend_score = min(100, backend_score)
