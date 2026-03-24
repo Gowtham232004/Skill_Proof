@@ -2,11 +2,13 @@ package com.skillproof.backend_core.service;
 
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -49,12 +51,25 @@ public class FileFilterService {
 
     // ── Main method ──────────────────────────────────────────────────────────
     // Takes raw file list from GitHub API, returns top files sorted by relevance
+    // With randomization to ensure questions vary between verification attempts
     public List<String> filterAndRankFiles(List<String> allFilePaths) {
-        return allFilePaths.stream()
+        List<String> ranked = allFilePaths.stream()
             .filter(this::shouldIncludeFile)
             .sorted(Comparator.comparingInt(this::scoreFile).reversed())
-            .limit(15)  // Top 15 most relevant files
             .collect(Collectors.toList());
+
+        // Randomize selection: shuffle top files and pick a varied subset
+        // This ensures same repo generates different questions on each verification
+        if (ranked.size() > 15) {
+            // Get top 30 to allow randomization while maintaining quality
+            List<String> topCandidates = ranked.subList(0, Math.min(30, ranked.size()));
+            Collections.shuffle(topCandidates, new Random());
+            return topCandidates.stream().limit(15).collect(Collectors.toList());
+        }
+        
+        // If fewer than 15 files, shuffle and return all (randomization with fewer options)
+        Collections.shuffle(ranked, new Random());
+        return ranked;
     }
 
     // Should this file be included at all?

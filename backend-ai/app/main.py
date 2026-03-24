@@ -74,14 +74,7 @@ app.add_middleware(
 app.include_router(questions.router, prefix="/internal", tags=["Questions"])
 app.include_router(evaluation.router, prefix="/internal", tags=["Evaluation"])
 
-from groq import Groq
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-test = groq_client.chat.completions.create(
-    model="llama-3.1-8b-instant",
-    messages=[{"role": "user", "content": "say OK"}],
-    max_tokens=5
-)
-logger.info(f"✓ Groq verified. Response: {test.choices[0].message.content}")
+
 @app.get("/health")
 async def health():
     return {
