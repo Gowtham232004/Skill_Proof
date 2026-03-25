@@ -13,6 +13,5 @@ public class QuestionDto {
     private String difficulty;
     private String fileReference;
     private String questionText;
-    // NOTE: codeContext is NOT included in response — security
-    // Developer should not see what code the question came from
+    private String codeContextSnippet;
 }

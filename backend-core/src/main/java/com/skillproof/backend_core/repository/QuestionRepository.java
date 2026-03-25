@@ -14,4 +14,6 @@ import com.skillproof.backend_core.model.VerificationSession;
 public interface QuestionRepository extends JpaRepository<Question, Long> {
 
     List<Question> findBySessionOrderByQuestionNumber(VerificationSession session);
+
+    long countBySessionId(Long sessionId);
 }

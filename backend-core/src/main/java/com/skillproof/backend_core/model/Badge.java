@@ -52,6 +52,20 @@ public class Badge {
     @Column(name = "overall_score")
     private Integer overallScore;
 
+    // Raw technical score before integrity adjustment.
+    @Column(name = "technical_score")
+    private Integer technicalScore;
+
+    // Score after soft integrity deduction.
+    @Column(name = "integrity_adjusted_score")
+    private Integer integrityAdjustedScore;
+
+    @Column(name = "integrity_penalty_total")
+    private Integer integrityPenaltyTotal;
+
+    @Column(name = "integrity_penalty_breakdown", columnDefinition = "TEXT")
+    private String integrityPenaltyBreakdown;
+
     // Skill dimension scores 0–100
     @Column(name = "backend_score")
     private Integer backendScore;
@@ -67,6 +81,20 @@ public class Badge {
 
     @Column(name = "documentation_score")
     private Integer documentationScore;
+
+    // Confidence tier based on skips, answer length, and score consistency.
+    @Column(name = "confidence_tier")
+    private String confidenceTier;
+
+    // Transparency signals for recruiter judgment.
+    @Column(name = "tab_switches")
+    private Integer tabSwitches;
+
+    @Column(name = "paste_count")
+    private Integer pasteCount;
+
+    @Column(name = "avg_answer_seconds")
+    private Integer avgAnswerSeconds;
 
     // Can be revoked by the developer
     @Column(name = "is_active")

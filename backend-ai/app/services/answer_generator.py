@@ -5,6 +5,7 @@ import re
 import time
 from groq import Groq
 from app.models.evaluation_models import SingleAnswerResult, SkillScores
+from app.utils.prompt_templates import ANSWER_EVALUATION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +14,20 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 # Rate limiting: wait between API calls
 REQUEST_DELAY = 0.3  # 300ms between requests
 
+MIN_MEANINGFUL_ANSWER_CHARS = 50
+MIN_WORD_COUNT_FOR_DEPTH = 12
+
 
 def detect_gibberish(text: str) -> bool:
     """Detect if answer is gibberish (random characters, no real words)."""
     text = text.strip()
     
     # Hard reject: too short to be meaningful
-    if len(text) < 15:
+    if len(text) < MIN_MEANINGFUL_ANSWER_CHARS:
+        return True
+
+    words = text.split()
+    if len(words) < 8:
         return True
     
     # Count letters vs non-letters
@@ -50,7 +58,62 @@ def detect_gibberish(text: str) -> bool:
     return False
 
 
-def evaluate_answers(questions_and_answers: list, code_summary: str):
+def extract_code_identifiers(code_context: str) -> set[str]:
+    """Extract potential identifiers from code context for specificity checks."""
+    if not code_context:
+        return set()
+
+    identifiers = set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]{2,}\b', code_context))
+    common_tokens = {
+        "public", "private", "class", "function", "return", "const", "let", "var",
+        "import", "from", "static", "void", "string", "number", "boolean", "null",
+        "true", "false", "this", "that", "with", "your", "answer", "code", "file"
+    }
+    return {token for token in identifiers if token.lower() not in common_tokens}
+
+
+def count_identifier_references(answer_text: str, code_context: str) -> int:
+    """Count unique code identifiers referenced in the answer text."""
+    identifiers = extract_code_identifiers(code_context)
+    if not identifiers:
+        return 0
+
+    answer_lower = answer_text.lower()
+    matched = set()
+    for token in identifiers:
+        if re.search(rf'\b{re.escape(token.lower())}\b', answer_lower):
+            matched.add(token)
+    return len(matched)
+
+
+def apply_quality_guards(accuracy: int,
+                         depth: int,
+                         specificity: int,
+                         answer_text: str,
+                         code_context: str) -> tuple[int, int, int, int, int]:
+    """Apply deterministic caps so generic answers cannot score too high."""
+    word_count = len(answer_text.split())
+    identifier_refs = count_identifier_references(answer_text, code_context)
+
+    if identifier_refs < 2:
+        specificity = min(specificity, 3)
+
+    if identifier_refs == 0:
+        depth = min(depth, 4)
+        accuracy = min(accuracy, 6)
+
+    if word_count < MIN_WORD_COUNT_FOR_DEPTH:
+        depth = min(depth, 4)
+
+    if word_count < 8:
+        accuracy = min(accuracy, 3)
+        depth = min(depth, 3)
+        specificity = min(specificity, 3)
+
+    return accuracy, depth, specificity, word_count, identifier_refs
+
+
+def evaluate_answers(questions_and_answers: list):
     """Evaluate answers and return (results, skill_scores) tuple."""
     results = []
     scores = {
@@ -69,6 +132,7 @@ def evaluate_answers(questions_and_answers: list, code_summary: str):
             difficulty = qa.get('difficulty', 'MEDIUM')
             question_text = qa.get('questionText', qa.get('question_text', ''))
             file_reference = qa.get('fileReference', qa.get('file_reference', 'unknown'))
+            code_context = qa.get('codeContext', qa.get('code_context', ''))
         else:
             # Pydantic AnswerToEvaluate object
             answer_text = getattr(qa, 'answer_text', '').strip()
@@ -76,6 +140,7 @@ def evaluate_answers(questions_and_answers: list, code_summary: str):
             difficulty = getattr(qa, 'difficulty', 'MEDIUM')
             question_text = getattr(qa, 'question_text', '')
             file_reference = getattr(qa, 'file_reference', 'unknown')
+            code_context = getattr(qa, 'code_context', '')
 
         answer_len = len(answer_text)
 
@@ -89,17 +154,15 @@ def evaluate_answers(questions_and_answers: list, code_summary: str):
             feedback = "Your answer appears to be gibberish or random characters. Please provide a real answer."
             logger.warning(f"Q{question_id}: Gibberish detected - '{answer_text[:30]}'")
         else:
-            prompt = f"""Grade this code answer strictly 1-10 on three criteria.
+            prompt = ANSWER_EVALUATION_PROMPT.format(
+                question_text=question_text,
+                file_reference=file_reference,
+                code_context=code_context[:3000],
+                answer_text=answer_text,
+            )
 
-QUESTION: {question_text}
-ANSWER: {answer_text}
-CODE: {code_summary[:1500]}
-
-Return ONLY JSON:
-{{"accuracyScore": 5, "depthScore": 5, "specificityScore": 5, "feedback": "brief comment"}}"""
-
-            accuracy, depth, specificity = 5, 5, 5  # Changed default to 5 (neutral)
-            feedback = "Unable to evaluate with AI."
+            accuracy, depth, specificity = 2, 2, 2
+            feedback = "AI evaluation failed. Response scored conservatively."
 
             for attempt in range(2):
                 try:
@@ -111,7 +174,7 @@ Return ONLY JSON:
                         model="llama-3.1-8b-instant",
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.2,
-                        max_tokens=80,
+                        max_tokens=160,
                     )
                     raw = response.choices[0].message.content.strip()
 
@@ -130,10 +193,22 @@ Return ONLY JSON:
                     json_str = raw[start:end].strip()
                     scored = json.loads(json_str)
 
-                    accuracy = min(10, max(0, int(scored.get("accuracyScore", 5))))
-                    depth = min(10, max(0, int(scored.get("depthScore", 5))))
-                    specificity = min(10, max(0, int(scored.get("specificityScore", 5))))
+                    accuracy = min(10, max(0, int(scored.get("accuracyScore", 2))))
+                    depth = min(10, max(0, int(scored.get("depthScore", 2))))
+                    specificity = min(10, max(0, int(scored.get("specificityScore", 2))))
                     feedback = str(scored.get("feedback", "Evaluated."))[:100]
+
+                    accuracy, depth, specificity, word_count, identifier_refs = apply_quality_guards(
+                        accuracy,
+                        depth,
+                        specificity,
+                        answer_text,
+                        code_context,
+                    )
+                    feedback = (
+                        f"{feedback} "
+                        f"(refs={identifier_refs}, words={word_count})"
+                    )[:180]
 
                     logger.debug(f"Q{question_id}: acc={accuracy} dep={depth} spec={specificity}")
                     break  # Success
@@ -145,7 +220,7 @@ Return ONLY JSON:
                     if attempt < 1:
                         logger.debug(f"Q{question_id} retry: {type(e).__name__}")
                         continue
-                    logger.warning(f"Q{question_id}: Could not evaluate, using neutral score")
+                    logger.warning(f"Q{question_id}: Could not evaluate, using conservative score")
 
         # Create result object
         result = SingleAnswerResult(

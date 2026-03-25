@@ -1,10 +1,17 @@
 github:
-  client-id: Ov23ligqK4lub20Xlo5J
-  client-secret: 1a9419ba8d7fdd4fead190bea958c27f7434b6f1
+  client-id: ${GITHUB_CLIENT_ID:dev-github-client-id}
+  client-secret: ${GITHUB_CLIENT_SECRET:dev-github-client-secret}
 
 jwt:
-  secret: pick-any-64-character-random-string-here
+  secret: ${JWT_SECRET:dev-only-jwt-secret-change-this-before-sharing}
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
   datasource:
-    password: skillproof123
+    url: ${DB_URL:jdbc:mysql://localhost:3306/skillproof?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${DB_USERNAME:skillproof_user}
+    password: ${DB_PASSWORD:}
+
+ai-service:
+  secret: ${AI_SERVICE_SECRET:dev-internal-secret-change-me}

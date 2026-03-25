@@ -99,6 +99,17 @@ Evaluate this answer on three dimensions (each 0-10):
    - 3-4: Could apply to any project — not specific
    - 0-2: Completely generic answer
 
+CRITICAL SCORING RULE (must follow):
+- If the answer does NOT mention at least 2 specific identifiers from the ACTUAL CODE
+  (function names, class names, variables, constants), SPECIFICITY must be 3 or below.
+
+GENERIC-ANSWER GUIDANCE:
+- Confident but generic answers that could apply to any project should score roughly:
+  - accuracy: 4-6
+  - depth: 2-4
+  - specificity: 1-3
+- Code-grounded answers that cite concrete implementation details should score in higher bands.
+
 Return ONLY valid JSON. No explanation text. No markdown:
 {{
   "accuracy_score": <0-10>,

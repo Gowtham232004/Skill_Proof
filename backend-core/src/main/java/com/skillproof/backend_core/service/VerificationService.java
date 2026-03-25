@@ -2,11 +2,14 @@ package com.skillproof.backend_core.service;
 
 
 import java.util.ArrayList;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillproof.backend_core.dto.request.StartVerificationRequest;
 import com.skillproof.backend_core.dto.response.QuestionDto;
 import com.skillproof.backend_core.dto.response.VerificationStartResponse;
+import com.skillproof.backend_core.exception.ApiException;
 import com.skillproof.backend_core.model.Question;
 import com.skillproof.backend_core.model.User;
 import com.skillproof.backend_core.model.VerificationSession;
@@ -44,6 +48,9 @@ public class VerificationService {
 
     // Free plan limit
     private static final int FREE_MONTHLY_LIMIT = 3;
+    private static final long REPO_COOLDOWN_HOURS = 24;
+    private static final int MAX_SNIPPET_LINES = 15;
+    private static final int MAX_SNIPPET_CHARS = 1800;
 
     @Transactional
     public VerificationStartResponse startVerification(Long userId,
@@ -51,21 +58,73 @@ public class VerificationService {
 
         // 1. Load user and check free tier limit
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                "USER_NOT_FOUND",
+                "User not found: " + userId
+            ));
 
         // Skip limit check if testing mode is enabled
         if (!bypassVerificationLimit && user.getPlan() == User.Plan.FREE) {
             long completedThisMonth = sessionRepository
                 .countByUserAndStatus(user, VerificationSession.Status.COMPLETED);
             if (completedThisMonth >= FREE_MONTHLY_LIMIT) {
-                throw new RuntimeException(
-                    "Free plan limit reached (" + FREE_MONTHLY_LIMIT +
-                    " verifications/month). Please upgrade to Pro.");
+                throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "FREE_PLAN_LIMIT_REACHED",
+                    "Free plan limit reached (" + FREE_MONTHLY_LIMIT
+                        + " verifications/month). Please upgrade to Pro.",
+                    Map.of("monthlyLimit", FREE_MONTHLY_LIMIT)
+                );
             }
         }
 
         if (bypassVerificationLimit && user.getPlan() == User.Plan.FREE) {
             log.info("⚠️  TEST MODE: Bypassing verification limit for user {}", user.getGithubUsername());
+        }
+
+        // Cooldown: one verification attempt per repo every 24h to reduce farming.
+        if (!bypassVerificationLimit) {
+            sessionRepository
+                .findTopByUserAndRepoOwnerIgnoreCaseAndRepoNameIgnoreCaseAndStatusOrderByStartedAtDesc(
+                    user,
+                    req.getRepoOwner(),
+                    req.getRepoName(),
+                    VerificationSession.Status.COMPLETED)
+                .ifPresent(lastSession -> {
+                    LocalDateTime referenceTime = lastSession.getStartedAt() != null
+                        ? lastSession.getStartedAt()
+                        : lastSession.getCompletedAt();
+
+                    if (referenceTime == null) {
+                        log.warn("Completed session {} has no timestamp; skipping cooldown check", lastSession.getId());
+                        return;
+                    }
+
+                    LocalDateTime nextAllowedAt = referenceTime.plusHours(REPO_COOLDOWN_HOURS);
+                    LocalDateTime now = LocalDateTime.now();
+                    if (now.isBefore(nextAllowedAt)) {
+                        Duration remaining = Duration.between(now, nextAllowedAt);
+                        long hours = remaining.toHours();
+                        long minutes = remaining.minusHours(hours).toMinutes();
+                        long remainingMinutes = Math.max(1, remaining.toMinutes());
+                        String waitTime = hours > 0
+                            ? hours + "h " + minutes + "m"
+                            : minutes + "m";
+
+                        throw new ApiException(
+                            HttpStatus.TOO_MANY_REQUESTS,
+                            "COOLDOWN_ACTIVE",
+                            "Cooldown active for this repository. Try again in " + waitTime + ".",
+                            Map.of(
+                                "repoOwner", req.getRepoOwner(),
+                                "repoName", req.getRepoName(),
+                                "remainingMinutes", remainingMinutes,
+                                "retryAt", nextAllowedAt.toString()
+                            )
+                        );
+                    }
+                });
         }
 
         log.info("Starting verification for user {} on repo {}/{}",
@@ -190,7 +249,27 @@ public class VerificationService {
             .difficulty(q.getDifficulty().name())
             .fileReference(q.getFileReference())
             .questionText(q.getQuestionText())
+            .codeContextSnippet(buildCodeContextSnippet(q.getCodeContext()))
             .build();
+    }
+
+    private String buildCodeContextSnippet(String codeContext) {
+        if (codeContext == null || codeContext.isBlank()) {
+            return "";
+        }
+
+        String[] lines = codeContext.split("\\R");
+        StringBuilder snippet = new StringBuilder();
+        int limit = Math.min(lines.length, MAX_SNIPPET_LINES);
+        for (int i = 0; i < limit; i++) {
+            snippet.append(lines[i]).append(System.lineSeparator());
+        }
+
+        String result = snippet.toString().trim();
+        if (result.length() > MAX_SNIPPET_CHARS) {
+            return result.substring(0, MAX_SNIPPET_CHARS) + "\n...";
+        }
+        return result;
     }
 
     private String toJson(List<String> list) {

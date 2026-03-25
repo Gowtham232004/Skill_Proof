@@ -7,12 +7,15 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.skillproof.backend_core.exception.ApiException;
 import com.skillproof.backend_core.model.Question;
 import com.skillproof.backend_core.model.VerificationSession;
 
@@ -27,38 +30,86 @@ public class AiGatewayService {
     @Value("${ai-service.url:http://localhost:8000}")
     private String aiServiceUrl;
 
+    @Value("${ai-service.secret:dev-internal-secret-change-me}")
+    private String aiServiceSecret;
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     public Map<String, Object> evaluateAnswers(Long sessionId,
                                             List<Map<String, Object>> answers,
                                             String primaryLanguage) {
-    try {
-        Map<String, Object> request = Map.of(
-            "session_id", sessionId,
-            "answers", answers,
-            "primary_language", primaryLanguage != null ? primaryLanguage : "Unknown"
-        );
+        try {
+            Map<String, Object> request = Map.of(
+                "session_id", sessionId,
+                "answers", answers,
+                "primary_language", primaryLanguage != null ? primaryLanguage : "Unknown"
+            );
 
-        String requestBody = objectMapper.writeValueAsString(request);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
 
-        String url = aiServiceUrl + "/internal/evaluate-answers";
-        log.info("Calling AI evaluation service for session {}", sessionId);
+            String url = aiServiceUrl + "/internal/evaluate-answers";
+            log.info("Calling AI evaluation service for session {}", sessionId);
 
-        String response = restTemplate.postForObject(url, entity, String.class);
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                throw new ApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI_EVALUATION_UNAVAILABLE",
+                    "AI evaluation service returned an empty response.",
+                    Map.of("sessionId", sessionId)
+                );
+            }
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> result = objectMapper.readValue(response, Map.class);
-        return result;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = objectMapper.readValue(response, Map.class);
+            validateEvaluationResponse(result, sessionId);
+            return result;
 
-    } catch (Exception e) {
-        log.error("Answer evaluation AI call failed for session {}: {}", 
-            sessionId, e.getMessage());
-        return new java.util.HashMap<>();
+        } catch (RestClientException | JsonProcessingException e) {
+            log.error("Answer evaluation AI call failed for session {}", sessionId, e);
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_EVALUATION_UNAVAILABLE",
+                "AI evaluation service is currently unavailable. Please try again.",
+                Map.of("sessionId", sessionId)
+            );
+        }
     }
-}
+
+    private void validateEvaluationResponse(Map<String, Object> response, Long sessionId) {
+        if (response == null || response.isEmpty()) {
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_EVALUATION_UNAVAILABLE",
+                "AI evaluation service returned no data.",
+                Map.of("sessionId", sessionId)
+            );
+        }
+
+        Object status = response.get("status");
+        if (!(status instanceof String statusText) || !"success".equalsIgnoreCase(statusText)) {
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_EVALUATION_UNAVAILABLE",
+                "AI evaluation service did not return a successful result.",
+                Map.of("sessionId", sessionId)
+            );
+        }
+
+        Object results = response.get("results");
+        if (!(results instanceof List<?> resultsList) || resultsList.isEmpty()) {
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_EVALUATION_UNAVAILABLE",
+                "AI evaluation service returned incomplete results.",
+                Map.of("sessionId", sessionId)
+            );
+        }
+    }
 
     public List<Question> generateQuestionsViaAI(VerificationSession session,
                                                    String codeSummary,
@@ -83,6 +134,7 @@ public class AiGatewayService {
             // Call Python AI service
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
             HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
 
             String url = aiServiceUrl + "/internal/generate-questions";
@@ -124,8 +176,8 @@ public class AiGatewayService {
         } catch (RestClientException e) {
             log.error("AI service HTTP error for session {}: {}", 
                 session.getId(), e.getMessage());
-        } catch (Exception e) {
-            log.error("AI service call failed for session {}: {}", 
+        } catch (JsonProcessingException e) {
+            log.error("AI service response parsing failed for session {}: {}",
                 session.getId(), e.getMessage(), e);
         }
 

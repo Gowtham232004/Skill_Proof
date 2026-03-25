@@ -23,10 +23,26 @@ export const getGitHubAuthUrl = () => api.get('/api/auth/github')
 export const startVerification = (repoOwner: string, repoName: string) =>
   api.post('/api/verify/start', { repoOwner, repoName })
 
-export const submitAnswers = (sessionId: number, answers: { questionId: number; answerText: string }[]) =>
-  api.post('/api/verify/submit', { sessionId, answers })
+export const submitAnswers = (
+  sessionId: number,
+  answers: { questionId: number; answerText: string; skipped?: boolean }[],
+  meta?: { totalTabSwitches?: number; pasteCount?: number; avgAnswerSeconds?: number }
+) =>
+  api.post('/api/verify/submit', {
+    sessionId,
+    answers,
+    totalTabSwitches: meta?.totalTabSwitches ?? 0,
+    pasteCount: meta?.pasteCount ?? 0,
+    avgAnswerSeconds: meta?.avgAnswerSeconds ?? 0,
+  })
 
 // Badge
 export const getBadge = (token: string) =>
   api.get(`/api/badge/${token}`)
 export const getUserRepos = () => api.get('/api/auth/repos')
+
+export const getRecruiterCandidateDetail = (badgeToken: string) =>
+  api.get(`/api/recruiter/candidates/${badgeToken}`)
+
+export const revealRecruiterCandidateAnswer = (badgeToken: string, questionNumber: number) =>
+  api.get(`/api/recruiter/candidates/${badgeToken}/questions/${questionNumber}/answer`)

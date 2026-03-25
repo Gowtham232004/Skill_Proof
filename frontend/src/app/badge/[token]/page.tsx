@@ -4,6 +4,9 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import { getBadge } from '@/lib/api'
+import { parseApiError } from '@/lib/apiError'
+import ErrorBanner from '@/app/components/ErrorBanner'
+import SuccessBanner from '@/app/components/SuccessBanner'
 
 interface BadgeData {
   valid: boolean
@@ -18,11 +21,45 @@ interface BadgeData {
   primaryLanguage: string
   frameworksDetected: string[]
   overallScore: number
+  technicalScore?: number
+  integrityAdjustedScore?: number
+  integrityPenaltyTotal?: number
+  integrityPenaltyBreakdown?: {
+    pastePenalty?: number
+    speedPenalty?: number
+    tabSwitchPenalty?: number
+  }
   backendScore: number
   apiDesignScore: number
   errorHandlingScore: number
   codeQualityScore: number
   documentationScore: number
+  confidenceTier?: 'High' | 'Medium' | 'Low'
+  tabSwitches?: number
+  pasteCount?: number
+  avgAnswerSeconds?: number
+  repoAttemptCount?: number
+  answeredCount?: number
+  totalQuestions?: number
+  skippedCount?: number
+  evaluationComplete?: boolean
+  confidenceExplanation?: string
+  questionResults?: {
+    questionNumber: number
+    difficulty: string
+    fileReference: string
+    questionText: string
+    questionCodeSnippet?: string
+    skipped?: boolean
+    answerLength?: number
+    maskedAnswerExcerpt?: string
+    accuracyScore?: number
+    depthScore?: number
+    specificityScore?: number
+    compositeScore?: number
+    aiFeedback?: string
+    keyPoints?: string[]
+  }[]
   issuedAt: string
 }
 
@@ -41,11 +78,19 @@ export default function BadgePage() {
   const [badge, setBadge] = useState<BadgeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     getBadge(token)
-      .then(res => { setBadge(res.data); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then(res => {
+        setBadge(res.data)
+        setLoading(false)
+      })
+      .catch((err) => {
+        const parsed = parseApiError(err, 'Could not load badge right now.')
+        setLoadError(parsed.message)
+        setLoading(false)
+      })
   }, [token])
 
   const handleCopy = () => {
@@ -58,6 +103,14 @@ export default function BadgePage() {
     ? badge.overallScore >= 80 ? '#34D399'
     : badge.overallScore >= 60 ? '#F59E0B' : '#F472B6'
     : '#D4FF00'
+
+  const technicalScore = badge?.technicalScore ?? badge?.overallScore ?? 0
+  const adjustedScore = badge?.integrityAdjustedScore ?? badge?.overallScore ?? 0
+  const confidenceColor = badge?.confidenceTier === 'High'
+    ? '#34D399'
+    : badge?.confidenceTier === 'Medium'
+      ? '#F59E0B'
+      : '#EF4444'
 
   if (loading) return (
     <div style={{ minHeight: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -75,8 +128,9 @@ export default function BadgePage() {
         <div style={{ fontSize: 48, marginBottom: 20 }}>✗</div>
         <h1 style={{ fontSize: 28, fontWeight: 900, color: '#F472B6', marginBottom: 12 }}>Badge Not Found</h1>
         <p style={{ color: 'rgba(255,255,255,0.4)', marginBottom: 28 }}>This badge token is invalid or has been revoked.</p>
+        {loadError && <ErrorBanner message={loadError} code="BADGE_LOAD_ERROR" compact />}
         <button onClick={() => router.push('/')}
-          style={{ background: '#D4FF00', color: '#000', border: 'none', padding: '12px 28px', borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}>
+          style={{ background: '#D4FF00', color: '#000', border: 'none', padding: '12px 28px', borderRadius: 10, fontWeight: 700, cursor: 'pointer', marginTop: 14 }}>
           Go to SkillProof
         </button>
       </div>
@@ -115,6 +169,8 @@ export default function BadgePage() {
 
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '80px 24px 60px' }}>
 
+        {copied && <SuccessBanner message="Badge URL copied to clipboard." compact />}
+
         {/* Verified header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
           style={{ textAlign: 'center', marginBottom: 32 }}>
@@ -151,10 +207,18 @@ export default function BadgePage() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em' }}>{badge.displayName || badge.githubUsername}</div>
                 <div style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.35)', marginTop: 3 }}>@{badge.githubUsername}</div>
+                {badge.confidenceTier && (
+                  <div title="Confidence reflects answer completeness and consistency, not just score." style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 999, border: `1px solid ${confidenceColor}60`, background: `${confidenceColor}1A`, color: confidenceColor, fontSize: 11, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+                    Confidence: {badge.confidenceTier}
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 52, fontWeight: 900, color: scoreColor, lineHeight: 1, letterSpacing: '-0.04em', fontFamily: 'JetBrains Mono, monospace' }}>{badge.overallScore}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>overall score</div>
+                <div style={{ fontSize: 52, fontWeight: 900, color: scoreColor, lineHeight: 1, letterSpacing: '-0.04em', fontFamily: 'JetBrains Mono, monospace' }}>{adjustedScore}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>integrity-adjusted score</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 4, fontFamily: 'JetBrains Mono, monospace' }}>
+                  technical {technicalScore} · penalty -{badge.integrityPenaltyTotal ?? 0}
+                </div>
               </div>
             </div>
 
@@ -258,6 +322,7 @@ export default function BadgePage() {
                 {[
                   { label: 'Badge Token', value: badge.verificationToken.substring(0, 20) + '...' },
                   { label: 'Algorithm', value: 'HMAC-SHA256' },
+                  { label: 'Repo Attempts', value: String(badge.repoAttemptCount ?? 1) },
                   { label: 'Issued', value: badge.issuedAt ? new Date(badge.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'March 2026' },
                   { label: 'Status', value: '✓ Tamper-proof' },
                 ].map((item, i) => (
@@ -268,6 +333,114 @@ export default function BadgePage() {
                 ))}
               </div>
             </div>
+
+            <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 12 }}>
+              <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(96,165,250,0.85)', marginBottom: 8, letterSpacing: '0.08em' }}>
+                INTEGRITY SIGNALS
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Tab switches</div>
+                  <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.tabSwitches ?? 0}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Paste count</div>
+                  <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.pasteCount ?? 0}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Avg answer time</div>
+                  <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.avgAnswerSeconds ?? 0}s</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(212,255,0,0.05)', border: '1px solid rgba(212,255,0,0.2)', borderRadius: 12 }}>
+              <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(212,255,0,0.85)', marginBottom: 8, letterSpacing: '0.08em' }}>
+                HOW THIS SCORE WAS CALCULATED
+              </div>
+              <p style={{ margin: 0, color: 'rgba(255,255,255,0.58)', fontSize: 13, lineHeight: 1.6 }}>
+                Answers were evaluated against repository code context using rubric dimensions: accuracy, depth, and code specificity.
+                Recruiters can review per-question evidence below; this score is a strong screening signal, not a standalone hiring decision.
+              </p>
+              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(96,165,250,0.35)', background: 'rgba(96,165,250,0.1)', color: '#60A5FA', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
+                  Answered: {badge.answeredCount ?? 0}/{badge.totalQuestions ?? 0}
+                </span>
+                <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
+                  Skipped: {badge.skippedCount ?? 0}
+                </span>
+                <span style={{ padding: '4px 8px', borderRadius: 999, border: `1px solid ${(badge.evaluationComplete ? '#34D399' : '#EF4444')}55`, background: `${(badge.evaluationComplete ? '#34D399' : '#EF4444')}15`, color: badge.evaluationComplete ? '#34D399' : '#EF4444', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
+                  Evaluation: {badge.evaluationComplete ? 'Complete' : 'Incomplete'}
+                </span>
+                <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
+                  Integrity penalty: -{badge.integrityPenaltyTotal ?? 0}
+                </span>
+              </div>
+              {badge.integrityPenaltyBreakdown && (
+                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.52)', fontFamily: 'JetBrains Mono, monospace' }}>
+                  paste {badge.integrityPenaltyBreakdown.pastePenalty ?? 0} · speed {badge.integrityPenaltyBreakdown.speedPenalty ?? 0} · tab {badge.integrityPenaltyBreakdown.tabSwitchPenalty ?? 0}
+                </div>
+              )}
+              {badge.confidenceExplanation && (
+                <p style={{ marginTop: 10, marginBottom: 0, color: 'rgba(255,255,255,0.52)', fontSize: 12, lineHeight: 1.5 }}>
+                  {badge.confidenceExplanation}
+                </p>
+              )}
+            </div>
+
+            {badge.questionResults && badge.questionResults.length > 0 && (
+              <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12 }}>
+                <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.75)', marginBottom: 10, letterSpacing: '0.08em' }}>
+                  QUESTION EVIDENCE
+                </div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {badge.questionResults.map((q) => (
+                    <div key={q.questionNumber} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 12, background: 'rgba(0,0,0,0.2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>Q{q.questionNumber}: {q.questionText}</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 999, padding: '2px 8px' }}>{q.fileReference}</span>
+                          <span style={{ fontSize: 11, color: q.difficulty === 'EASY' ? '#34D399' : q.difficulty === 'MEDIUM' ? '#F59E0B' : '#F472B6', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '2px 8px' }}>{q.difficulty}</span>
+                          {q.skipped && (
+                            <span style={{ fontSize: 11, color: '#F59E0B', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 999, padding: '2px 8px' }}>Skipped</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 6 }}>
+                        <div style={{ padding: 7, borderRadius: 8, background: 'rgba(255,255,255,0.03)', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>A {q.accuracyScore ?? 0}/10</div>
+                        <div style={{ padding: 7, borderRadius: 8, background: 'rgba(255,255,255,0.03)', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>D {q.depthScore ?? 0}/10</div>
+                        <div style={{ padding: 7, borderRadius: 8, background: 'rgba(255,255,255,0.03)', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>S {q.specificityScore ?? 0}/10</div>
+                        <div style={{ padding: 7, borderRadius: 8, background: 'rgba(255,255,255,0.03)', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>Len {q.answerLength ?? 0}</div>
+                      </div>
+
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+                        <b>Answer excerpt:</b> {q.maskedAnswerExcerpt || (q.skipped ? 'Question skipped by candidate.' : 'Not available.')}
+                      </div>
+
+                      {q.questionCodeSnippet && (
+                        <div style={{ marginTop: 8, border: '1px solid rgba(96,165,250,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                          <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(96,165,250,0.18)', fontSize: 10, color: 'rgba(147,197,253,0.88)', letterSpacing: '0.08em', fontFamily: 'JetBrains Mono, monospace' }}>
+                            CODE CONTEXT
+                          </div>
+                          <pre style={{ margin: 0, padding: '10px 12px', maxHeight: 180, overflow: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, lineHeight: 1.45, color: 'rgba(226,232,240,0.9)', background: 'rgba(2,6,23,0.5)' }}>
+                            {q.questionCodeSnippet}
+                          </pre>
+                        </div>
+                      )}
+
+                      {q.keyPoints && q.keyPoints.length > 0 && (
+                        <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 18, color: 'rgba(255,255,255,0.62)', fontSize: 12, lineHeight: 1.5 }}>
+                          {q.keyPoints.map((point, index) => (
+                            <li key={index}>{point}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
 

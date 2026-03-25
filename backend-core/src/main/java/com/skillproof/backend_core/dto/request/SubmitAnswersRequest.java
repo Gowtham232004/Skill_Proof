@@ -22,6 +22,15 @@ public class SubmitAnswersRequest {
     @JsonProperty("answers")
     private List<AnswerItem> answers;
 
+    @JsonProperty("totalTabSwitches")
+    private Integer totalTabSwitches;
+
+    @JsonProperty("pasteCount")
+    private Integer pasteCount;
+
+    @JsonProperty("avgAnswerSeconds")
+    private Integer avgAnswerSeconds;
+
     @Data
     public static class AnswerItem {
 
@@ -29,8 +38,10 @@ public class SubmitAnswersRequest {
         @JsonProperty("questionId")
         private Long questionId;
 
-        @NotEmpty
         @JsonProperty("answerText")
         private String answerText;
+
+        @JsonProperty("skipped")
+        private Boolean skipped;
     }
 }

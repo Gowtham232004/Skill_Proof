@@ -17,6 +17,20 @@ public interface VerificationSessionRepository extends JpaRepository<Verificatio
 
     Optional<VerificationSession> findByIdAndUser(Long id, User user);
 
+    Optional<VerificationSession> findTopByUserAndRepoOwnerIgnoreCaseAndRepoNameIgnoreCaseAndStatusOrderByStartedAtDesc(
+        User user,
+        String repoOwner,
+        String repoName,
+        VerificationSession.Status status
+    );
+
     // Count completed verifications for a user this month (for free tier limit)
     long countByUserAndStatus(User user, VerificationSession.Status status);
+
+    long countByUserAndRepoOwnerAndRepoNameAndStatus(
+        User user,
+        String repoOwner,
+        String repoName,
+        VerificationSession.Status status
+    );
 }

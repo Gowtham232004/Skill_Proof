@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +18,7 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillproof.backend_core.dto.response.AuthResponse;
+import com.skillproof.backend_core.exception.ApiException;
 import com.skillproof.backend_core.model.Badge;
 import com.skillproof.backend_core.model.User;
 import com.skillproof.backend_core.repository.BadgeRepository;
@@ -60,7 +63,10 @@ public class AuthController {
             
             log.info("🔄 Redirecting to frontend callback: http://localhost:3000/auth/callback?data=...");
             return new RedirectView(redirectUrl);
-        } catch (Exception e) {
+        } catch (JsonProcessingException | ApiException e) {
+            log.error("❌ GitHub callback error: {}", e.getMessage(), e);
+            return new RedirectView("http://localhost:3000/?error=auth_failed");
+        } catch (RuntimeException e) {
             log.error("❌ GitHub callback error: {}", e.getMessage(), e);
             return new RedirectView("http://localhost:3000/?error=auth_failed");
         }
@@ -71,7 +77,11 @@ public class AuthController {
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found"));
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                "USER_NOT_FOUND",
+                "User not found"
+            ));
         List<Map<String, Object>> repos = gitHubService.getUserRepositories(
             user.getGithubAccessToken());
         return ResponseEntity.ok(repos);
@@ -87,12 +97,17 @@ public class AuthController {
             c.put("avatarUrl", b.getUser().getAvatarUrl());
             c.put("displayName", b.getUser().getDisplayName());
             c.put("repoName", b.getSession().getRepoName());
+            c.put("repoOwner", b.getSession().getRepoOwner());
             c.put("overallScore", b.getOverallScore());
             c.put("backendScore", b.getBackendScore());
             c.put("apiDesignScore", b.getApiDesignScore());
             c.put("errorHandlingScore", b.getErrorHandlingScore());
             c.put("codeQualityScore", b.getCodeQualityScore());
             c.put("documentationScore", b.getDocumentationScore());
+            c.put("confidenceTier", b.getConfidenceTier());
+            c.put("tabSwitches", b.getTabSwitches());
+            c.put("pasteCount", b.getPasteCount());
+            c.put("avgAnswerSeconds", b.getAvgAnswerSeconds());
             c.put("badgeToken", b.getVerificationToken());
             c.put("issuedAt", b.getIssuedAt());
             c.put("primaryLanguage", b.getSession().getRepoLanguage());

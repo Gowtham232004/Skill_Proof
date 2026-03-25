@@ -4,8 +4,9 @@ from contextlib import asynccontextmanager
 
 from google import genai
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.routers import questions, evaluation
 
@@ -63,6 +64,16 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+@app.middleware("http")
+async def verify_internal_secret(request: Request, call_next):
+    if request.url.path.startswith("/internal"):
+        expected_secret = os.getenv("INTERNAL_SECRET", "dev-internal-secret-change-me")
+        provided_secret = request.headers.get("X-Internal-Secret")
+        if provided_secret != expected_secret:
+            return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,

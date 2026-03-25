@@ -46,7 +46,7 @@ public class HmacUtil {
             byte[] hash = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash).substring(0, 32); // First 32 chars
         } catch (Exception e) {
-            throw new RuntimeException("Failed to generate HMAC token", e);
+            throw new IllegalStateException("Failed to generate HMAC token", e);
         }
     }
 }

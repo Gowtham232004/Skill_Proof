@@ -48,7 +48,6 @@ public class SecurityConfig {
                     "/api/auth/github",       // Get GitHub auth URL
                     "/api/auth/github/callback", // OAuth callback
                     "/api/badge/**",          // Public badge pages
-                    "/api/verify/**",         // Verification endpoints (temporary for testing)
                     "/actuator/health",       // Health check
                     "/swagger-ui/**",         // API docs
                     "/v3/api-docs/**"

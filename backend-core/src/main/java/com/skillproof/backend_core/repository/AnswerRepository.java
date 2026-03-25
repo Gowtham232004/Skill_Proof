@@ -15,5 +15,9 @@ public interface AnswerRepository extends JpaRepository<Answer, Long> {
 
     List<Answer> findByQuestionSessionId(Long sessionId);
 
+    List<Answer> findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(Long sessionId);
+
+    Optional<Answer> findByQuestionSessionIdAndQuestionQuestionNumber(Long sessionId, Integer questionNumber);
+
     Optional<Answer> findByQuestion(Question question);
 }

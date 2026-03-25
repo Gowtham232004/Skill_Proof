@@ -14,10 +14,25 @@ SkillProof connects to your GitHub, analyzes your actual source code, generates 
 | Pillar | Description | Status |
 |---|---|---|
 | Portfolio Verification | GitHub OAuth → code analysis → AI questions → HMAC badge | ✅ Built |
+| Confidence & Integrity Signals | Confidence tier + tab switches + paste count + avg answer time on badge | ✅ Built |
 | Live Coding Challenges | Docker-sandboxed task execution with automated test scoring | 🔧 Prototype |
 | Peer Code Review | Expert reviewer matching by tech stack | 🔧 Prototype |
 | Skill Gap Analysis | 24 code pattern checks → personalized roadmap | 🔧 Prototype |
 | Hiring Dashboard | Recruiter/company candidate pipeline | ✅ Built |
+
+---
+
+## Phase 3 Update (Implemented)
+
+- Confidence scoring is computed server-side (`High`/`Medium`/`Low`) and persisted on each badge.
+- Behavioral transparency metrics are captured during verification:
+  - tab switches
+  - paste count
+  - average answer time (seconds)
+- Trust metadata is visible in both:
+  - Public badge page (`/badge/{token}`)
+  - Recruiter dashboard candidate views
+- OAuth callback handling is hardened to use trusted redirect payload/error handling only.
 
 ---
 
@@ -92,10 +107,33 @@ GRANT ALL PRIVILEGES ON skillproof.* TO 'skillproof_user'@'localhost';
 cd backend-core
 
 # Configure environment (update application.yml or set env vars)
-# GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, JWT_SECRET, DB credentials
+# GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, JWT_SECRET,
+# DB_PASSWORD, AI_SERVICE_SECRET
+
+# Example: set DB password in shell before running
+# Windows PowerShell:
+#   $env:DB_PASSWORD="skillproof123"
+# Windows CMD:
+#   set DB_PASSWORD=skillproof123
+# Mac/Linux:
+#   export DB_PASSWORD="skillproof123"
 
 mvn spring-boot:run
 # Runs on http://localhost:8080
+```
+
+If startup fails with MySQL error 1045 (Access denied for user), run this in MySQL as root/admin:
+
+```sql
+ALTER USER 'skillproof_user'@'localhost' IDENTIFIED BY 'skillproof123';
+GRANT ALL PRIVILEGES ON skillproof.* TO 'skillproof_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Then verify login manually:
+
+```bash
+mysql -u skillproof_user -p -h localhost skillproof
 ```
 
 ### 3. AI Service (Python)
@@ -111,6 +149,7 @@ pip install -r requirements.txt
 
 # Create .env file:
 # GROQ_API_KEY=your_groq_api_key_here
+# AI_SERVICE_SECRET=match_backend_core_ai_service_secret
 
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 # Runs on http://localhost:8000
@@ -136,7 +175,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/skillproof
     username: skillproof_user
-    password: skillproof123
+    password: ${DB_PASSWORD}
 
 github:
   client-id: YOUR_GITHUB_CLIENT_ID
@@ -148,12 +187,14 @@ jwt:
 
 ai-service:
   url: http://localhost:8000
+  secret: YOUR_SHARED_AI_SERVICE_SECRET
 ```
 
 ### `backend-ai/.env`
 
 ```
 GROQ_API_KEY=your_groq_api_key_here
+AI_SERVICE_SECRET=YOUR_SHARED_AI_SERVICE_SECRET
 ```
 
 ### GitHub OAuth App Settings
@@ -172,7 +213,7 @@ Go to `github.com/settings/developers` → New OAuth App:
 | GET | `/api/auth/github/callback` | None | OAuth callback → JWT |
 | GET | `/api/auth/repos` | JWT | List user's GitHub repos |
 | POST | `/api/verify/start` | JWT | Start verification session |
-| POST | `/api/verify/submit` | JWT | Submit answers → generate badge |
+| POST | `/api/verify/submit` | JWT | Submit answers + integrity metadata → generate badge |
 | GET | `/api/badge/{token}` | None | Public badge data |
 | GET | `/api/recruiter/candidates` | JWT | All verified candidates |
 
@@ -189,8 +230,10 @@ Go to `github.com/settings/developers` → New OAuth App:
 6. Developer answers 5 questions (wizard UI)
 7. Groq AI evaluates each answer against the code context
 8. Scores computed: Backend, API Design, Error Handling, Code Quality, Documentation
-9. Badge created and HMAC-SHA256 signed
-10. Public badge URL generated — shareable with recruiters
+9. Confidence tier computed from skip count, answer length, and score consistency
+10. Integrity signals recorded (tab switches, paste count, average answer time)
+11. Badge created and HMAC-SHA256 signed
+12. Public badge URL generated — shareable with recruiters
 ```
 
 ---
@@ -200,7 +243,22 @@ Go to `github.com/settings/developers` → New OAuth App:
 - **JWT**: HS384 signed tokens, 24-hour expiry
 - **HMAC Badges**: SHA-256 signed with server secret — tamper-evident
 - **GitHub OAuth**: Read-only scope (`public_repo, read:user`) — no write access ever
+- **Internal Service Auth**: Core → AI internal routes protected with `X-Internal-Secret`
 - **CORS**: Configured per environment — localhost only in dev
+
+---
+
+## Badge Trust Metadata
+
+- **Confidence Tier** (`High`/`Medium`/`Low`):
+  - High: no skips, avg answer length > 100 chars, score spread < 20
+  - Medium: 1 skip or score spread >= 20
+  - Low: 2 skips or very short answers
+- **Integrity Signals** (transparency only):
+  - Tab switches
+  - Paste count
+  - Average answer time (seconds)
+- Signals are informational for recruiters and do not auto-fail a verification.
 
 ---
 
