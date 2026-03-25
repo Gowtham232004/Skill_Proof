@@ -3,6 +3,9 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, startVerification, submitAnswers } from '@/lib/api'
+import { formatCooldownFromMinutes, parseApiError } from '@/lib/apiError'
+import ErrorBanner from '@/app/components/ErrorBanner'
+import SuccessBanner from '@/app/components/SuccessBanner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Repo {
@@ -20,16 +23,30 @@ interface Question {
   difficulty: 'EASY' | 'MEDIUM' | 'HARD'
   fileReference: string
   questionText: string
+  codeContextSnippet?: string
 }
 
 interface VerifyResult {
   sessionId: number
   overallScore: number
+  technicalScore?: number
+  integrityAdjustedScore?: number
+  integrityPenaltyTotal?: number
+  integrityPenaltyBreakdown?: {
+    pastePenalty?: number
+    speedPenalty?: number
+    tabSwitchPenalty?: number
+  }
   backendScore: number
   apiDesignScore: number
   errorHandlingScore: number
   codeQualityScore: number
   documentationScore: number
+  repoAttemptCount?: number
+  confidenceTier?: 'High' | 'Medium' | 'Low'
+  tabSwitches?: number
+  pasteCount?: number
+  avgAnswerSeconds?: number
   badgeToken: string
   badgeUrl: string
   topGaps: string[]
@@ -89,9 +106,9 @@ function StepSelectRepo({ onSelect }: { onSelect: (repo: Repo) => void }) {
     api.get('/api/auth/repos').then(res => {
       setRepos(res.data)
       setLoading(false)
-    }).catch(() => {
-      // Fallback — use GitHub API directly via backend proxy
-      setError('Could not load repositories. Make sure you are logged in.')
+    }).catch((err) => {
+      const parsed = parseApiError(err, 'Could not load repositories. Make sure you are logged in.')
+      setError(parsed.message)
       setLoading(false)
     })
   }, [])
@@ -110,9 +127,9 @@ function StepSelectRepo({ onSelect }: { onSelect: (repo: Repo) => void }) {
 
   if (error) return (
     <div style={{ textAlign: 'center', padding: '60px 24px' }}>
-      <p style={{ color: '#F472B6', marginBottom: 16 }}>{error}</p>
+      <ErrorBanner message={error} compact />
       <button onClick={() => window.location.href = '/api/auth/github'}
-        style={{ background: '#D4FF00', color: '#000', border: 'none', padding: '12px 28px', borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}>
+        style={{ background: '#D4FF00', color: '#000', border: 'none', padding: '12px 28px', borderRadius: 10, fontWeight: 700, cursor: 'pointer', marginTop: 14 }}>
         Login with GitHub
       </button>
     </div>
@@ -167,6 +184,7 @@ function StepSelectRepo({ onSelect }: { onSelect: (repo: Repo) => void }) {
 // Step 2: Analyzing
 function StepAnalyzing({ repo, onDone }: { repo: Repo; onDone: (sessionId: number, questions: Question[]) => void }) {
   const [stage, setStage] = useState(0)
+  const [error, setError] = useState('')
   const called = useRef(false)
 
   const STAGES = [
@@ -200,7 +218,15 @@ function StepAnalyzing({ repo, onDone }: { repo: Repo; onDone: (sessionId: numbe
       })
       .catch(err => {
         intervals.forEach(clearTimeout)
-        console.error(err)
+        const parsed = parseApiError(err, 'Could not start verification for this repository.')
+        if (parsed.code === 'COOLDOWN_ACTIVE') {
+          const waitText = formatCooldownFromMinutes(parsed.details?.remainingMinutes)
+          if (waitText) {
+            setError(`Cooldown active for this repository. Retry in ${waitText}.`)
+            return
+          }
+        }
+        setError(parsed.message)
       })
 
     return () => intervals.forEach(clearTimeout)
@@ -243,6 +269,9 @@ function StepAnalyzing({ repo, onDone }: { repo: Repo; onDone: (sessionId: numbe
           </motion.div>
         ))}
       </div>
+      {error && (
+        <ErrorBanner message={error} code="VERIFY_START_ERROR" />
+      )}
     </div>
   )
 }
@@ -257,23 +286,98 @@ function StepAnswerQuestions({
 }) {
   const [current, setCurrent] = useState(0)
   const [answers, setAnswers] = useState<Record<number, string>>({})
+  const [skipped, setSkipped] = useState<Record<number, boolean>>({})
+  const [questionViewStartedAt, setQuestionViewStartedAt] = useState<number>(Date.now())
+  const [questionDurationsSeconds, setQuestionDurationsSeconds] = useState<Record<number, number>>({})
+  const [totalTabSwitches, setTotalTabSwitches] = useState(0)
+  const [pasteCount, setPasteCount] = useState(0)
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [invalidQuestionId, setInvalidQuestionId] = useState<number | null>(null)
+
+  const maxSkips = 2
+  const skippedCount = Object.values(skipped).filter(Boolean).length
 
   const q = questions[current]
   const progress = ((current + 1) / questions.length) * 100
-  const canNext = (answers[q?.id] || '').trim().length > 30
-  const allAnswered = questions.every(q => (answers[q.id] || '').trim().length > 30)
+  const canNext = !!(q && (skipped[q.id] || (answers[q.id] || '').trim().length > 30))
+  const allAnswered = questions.every(q => skipped[q.id] || (answers[q.id] || '').trim().length > 30)
+
+  useEffect(() => {
+    setQuestionViewStartedAt(Date.now())
+  }, [current])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        setTotalTabSwitches(prev => prev + 1)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
+  const captureCurrentQuestionDuration = () => {
+    if (!q) {
+      return questionDurationsSeconds
+    }
+
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - questionViewStartedAt) / 1000))
+    const snapshot = {
+      ...questionDurationsSeconds,
+      [q.id]: (questionDurationsSeconds[q.id] || 0) + elapsedSeconds,
+    }
+
+    setQuestionDurationsSeconds(snapshot)
+    setQuestionViewStartedAt(Date.now())
+    return snapshot
+  }
+
+  const handleSkipCurrent = () => {
+    if (!q) return
+    const isAlreadySkipped = !!skipped[q.id]
+    if (!isAlreadySkipped && skippedCount >= maxSkips) return
+    setSkipped(prev => ({ ...prev, [q.id]: !isAlreadySkipped }))
+    setSubmitError('')
+    setInvalidQuestionId(null)
+  }
 
   const handleSubmit = async () => {
     setSubmitting(true)
+    setSubmitError('')
+    setInvalidQuestionId(null)
     try {
+      const durationSnapshot = captureCurrentQuestionDuration()
+      const totalDuration = Object.values(durationSnapshot).reduce((sum, seconds) => sum + seconds, 0)
+      const avgAnswerSeconds = questions.length > 0 ? Math.round(totalDuration / questions.length) : 0
+
       const payload = questions.map(q => ({
         questionId: q.id,
-        answerText: answers[q.id] || ''
+        answerText: skipped[q.id] ? '' : (answers[q.id] || ''),
+        skipped: !!skipped[q.id]
       }))
-      const res = await submitAnswers(sessionId, payload)
+      const res = await submitAnswers(sessionId, payload, {
+        totalTabSwitches,
+        pasteCount,
+        avgAnswerSeconds,
+      })
       onSubmit(res.data)
-    } catch (e) {
+    } catch (e: any) {
+      const parsed = parseApiError(e, 'Could not submit answers. Please try again.')
+      if (parsed.code === 'ANSWER_TOO_SHORT') {
+        const questionNumber = Number(parsed.details?.questionNumber)
+        if (!Number.isNaN(questionNumber)) {
+          const invalidQuestion = questions.find(item => item.questionNumber === questionNumber)
+          if (invalidQuestion) {
+            const invalidIndex = questions.findIndex(item => item.id === invalidQuestion.id)
+            if (invalidIndex >= 0) setCurrent(invalidIndex)
+            setInvalidQuestionId(invalidQuestion.id)
+          }
+        }
+      }
+
+      setSubmitError(parsed.message)
       setSubmitting(false)
     }
   }
@@ -305,8 +409,11 @@ function StepAnswerQuestions({
           {questions.map((_, i) => (
             <motion.button
               key={i}
-              onClick={() => setCurrent(i)}
-              animate={{ background: i === current ? '#D4FF00' : answers[questions[i].id]?.trim().length > 30 ? 'rgba(52,211,153,0.3)' : 'rgba(255,255,255,0.06)' }}
+              onClick={() => {
+                captureCurrentQuestionDuration()
+                setCurrent(i)
+              }}
+              animate={{ background: i === current ? '#D4FF00' : skipped[questions[i].id] ? 'rgba(245,158,11,0.35)' : answers[questions[i].id]?.trim().length > 30 ? 'rgba(52,211,153,0.3)' : 'rgba(255,255,255,0.06)' }}
               style={{ flex: 1, height: 6, borderRadius: 3, border: 'none', cursor: 'pointer' }}
             />
           ))}
@@ -336,18 +443,47 @@ function StepAnswerQuestions({
             {q.questionText}
           </p>
 
+          {q.codeContextSnippet && (
+            <div style={{ marginBottom: 16, border: '1px solid rgba(96,165,250,0.24)', background: 'rgba(96,165,250,0.08)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(96,165,250,0.18)', fontSize: 11, letterSpacing: '0.08em', color: 'rgba(147,197,253,0.9)', fontFamily: 'JetBrains Mono, monospace' }}>
+                REFERENCED CODE
+              </div>
+              <pre style={{ margin: 0, padding: '12px 14px', maxHeight: 260, overflow: 'auto', color: 'rgba(226,232,240,0.92)', fontSize: 12, lineHeight: 1.5, fontFamily: 'JetBrains Mono, monospace', background: 'rgba(2,6,23,0.55)' }}>
+                {q.codeContextSnippet}
+              </pre>
+            </div>
+          )}
+
           <textarea
             value={answers[q.id] || ''}
-            onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
+            onChange={e => {
+              setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))
+              if (invalidQuestionId === q.id) {
+                setInvalidQuestionId(null)
+                setSubmitError('')
+              }
+            }}
+            onPaste={() => setPasteCount(prev => prev + 1)}
             placeholder="Explain your implementation decision in detail. Reference specific components, functions, or architectural choices..."
             rows={6}
-            style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.04)', border: `1px solid ${canNext ? 'rgba(212,255,0,0.3)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 12, color: '#fff', fontSize: 14, fontFamily: 'Outfit, sans-serif', resize: 'vertical', outline: 'none', lineHeight: 1.6, transition: 'border-color 0.2s', boxSizing: 'border-box' }}
+            disabled={!!skipped[q.id]}
+            style={{ width: '100%', padding: '14px 16px', background: skipped[q.id] ? 'rgba(245,158,11,0.07)' : 'rgba(255,255,255,0.04)', border: `1px solid ${skipped[q.id] ? 'rgba(245,158,11,0.35)' : invalidQuestionId === q.id ? 'rgba(244,114,182,0.8)' : canNext ? 'rgba(212,255,0,0.3)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 12, color: '#fff', fontSize: 14, fontFamily: 'Outfit, sans-serif', resize: 'vertical', outline: 'none', lineHeight: 1.6, transition: 'border-color 0.2s', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
             <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: canNext ? '#34D399' : 'rgba(255,255,255,0.2)' }}>
-              {(answers[q.id] || '').trim().length} chars {!canNext && '· minimum 30'}
+              {skipped[q.id] ? `Skipped · ${Math.max(0, maxSkips - skippedCount)} skips left` : `${(answers[q.id] || '').trim().length} chars ${!canNext ? '· minimum 30' : ''}`}
             </span>
+            <button
+              onClick={handleSkipCurrent}
+              disabled={!skipped[q.id] && skippedCount >= maxSkips}
+              style={{ fontSize: 12, padding: '5px 10px', background: skipped[q.id] ? 'rgba(245,158,11,0.2)' : 'transparent', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 8, color: '#F59E0B', fontWeight: 700, cursor: !skipped[q.id] && skippedCount >= maxSkips ? 'not-allowed' : 'pointer', opacity: !skipped[q.id] && skippedCount >= maxSkips ? 0.4 : 1, fontFamily: 'JetBrains Mono, monospace' }}>
+              {skipped[q.id] ? 'Unskip' : `Skip (${Math.max(0, maxSkips - skippedCount)} left)`}
+            </button>
           </div>
+
+          {submitError && (
+            <ErrorBanner message={submitError} code="VERIFY_SUBMIT_ERROR" />
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -355,7 +491,10 @@ function StepAnswerQuestions({
       <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
         {current > 0 && (
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-            onClick={() => setCurrent(c => c - 1)}
+            onClick={() => {
+              captureCurrentQuestionDuration()
+              setCurrent(c => c - 1)
+            }}
             style={{ padding: '13px 24px', background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit, sans-serif' }}>
             ← Previous
           </motion.button>
@@ -363,7 +502,10 @@ function StepAnswerQuestions({
 
         {current < questions.length - 1 ? (
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-            onClick={() => setCurrent(c => c + 1)}
+            onClick={() => {
+              captureCurrentQuestionDuration()
+              setCurrent(c => c + 1)
+            }}
             style={{ flex: 1, padding: '13px 24px', background: canNext ? '#D4FF00' : 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 12, color: canNext ? '#000' : 'rgba(255,255,255,0.3)', fontSize: 14, fontWeight: 700, cursor: canNext ? 'pointer' : 'not-allowed', fontFamily: 'Outfit, sans-serif', transition: 'all 0.2s' }}>
             Next Question →
           </motion.button>
@@ -453,6 +595,7 @@ function SkillGapSection({ gaps }: { gaps: string[] }) {
 // Step 4: Results
 function StepResults({ result, onNewVerification }: { result: VerifyResult; onNewVerification: () => void }) {
   const router = useRouter()
+  const [copiedBadgeUrl, setCopiedBadgeUrl] = useState(false)
   const SKILL_LABELS = [
     { key: 'backendScore', label: 'Backend Logic', color: '#D4FF00' },
     { key: 'apiDesignScore', label: 'API Design', color: '#60A5FA' },
@@ -461,7 +604,9 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
     { key: 'documentationScore', label: 'Documentation', color: '#F472B6' },
   ] as const
 
-  const scoreColor = result.overallScore >= 80 ? '#34D399' : result.overallScore >= 60 ? '#F59E0B' : '#F472B6'
+  const adjustedScore = result.integrityAdjustedScore ?? result.overallScore
+  const technicalScore = result.technicalScore ?? result.overallScore
+  const scoreColor = adjustedScore >= 80 ? '#34D399' : adjustedScore >= 60 ? '#F59E0B' : '#F472B6'
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
@@ -470,12 +615,31 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
         <motion.div initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
           style={{ display: 'inline-block' }}>
-          <ScoreRing score={result.overallScore} color={scoreColor} size={140} />
+          <ScoreRing score={adjustedScore} color={scoreColor} size={140} />
         </motion.div>
         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8, letterSpacing: '0.1em' }}>
-          OVERALL SCORE
+          INTEGRITY-ADJUSTED SCORE
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.48)', fontFamily: 'JetBrains Mono, monospace' }}>
+          technical {technicalScore} · penalty -{result.integrityPenaltyTotal ?? 0}
         </div>
       </div>
+
+      {(result.integrityPenaltyTotal ?? 0) > 0 && (
+        <div style={{ marginBottom: 22, padding: '14px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12 }}>
+          <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: '#F59E0B', marginBottom: 8, letterSpacing: '0.08em' }}>
+            INTEGRITY ADJUSTMENT APPLIED
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+            Your technical score is preserved, but a soft integrity deduction was applied based on telemetry signals.
+          </div>
+          {result.integrityPenaltyBreakdown && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'JetBrains Mono, monospace' }}>
+              paste {result.integrityPenaltyBreakdown.pastePenalty ?? 0} · speed {result.integrityPenaltyBreakdown.speedPenalty ?? 0} · tab {result.integrityPenaltyBreakdown.tabSwitchPenalty ?? 0}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Skill bars */}
       <div style={{ marginBottom: 28 }}>
@@ -525,10 +689,22 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
           {result.badgeUrl}
         </div>
         <button
-          onClick={() => navigator.clipboard.writeText(result.badgeUrl)}
+          onClick={() => {
+            navigator.clipboard.writeText(result.badgeUrl)
+            setCopiedBadgeUrl(true)
+            setTimeout(() => setCopiedBadgeUrl(false), 1800)
+          }}
           style={{ fontSize: 12, padding: '6px 14px', background: '#D4FF00', color: '#000', border: 'none', borderRadius: 7, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit, sans-serif' }}>
           Copy Badge URL
         </button>
+        {copiedBadgeUrl && (
+          <SuccessBanner message="Badge URL copied to clipboard." compact />
+        )}
+        {typeof result.repoAttemptCount === 'number' && (
+          <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.45)', fontFamily: 'JetBrains Mono, monospace' }}>
+            Repository attempts completed: {result.repoAttemptCount}
+          </div>
+        )}
       </div>
 
       {/* Actions */}

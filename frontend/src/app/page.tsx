@@ -13,7 +13,7 @@ function useLenis() {
   useEffect(() => {
     let lenis: any
     import('@studio-freight/lenis').then(({ default: Lenis }) => {
-      lenis = new Lenis({ lerp: 0.08, wheelMultiplier: 1.3, smoothWheel: true, syncTouch: true })
+      lenis = new Lenis({ lerp: 0.00, wheelMultiplier:0.0, smoothWheel:false, syncTouch:false })
       const raf = (t: number) => { lenis.raf(t); requestAnimationFrame(raf) }
       requestAnimationFrame(raf)
     })

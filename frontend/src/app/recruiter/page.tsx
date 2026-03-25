@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
+import { parseApiError } from '@/lib/apiError'
+import ErrorBanner from '@/app/components/ErrorBanner'
+import InfoBanner from '@/app/components/InfoBanner'
 
 interface Candidate {
   sessionId: number
@@ -17,6 +20,10 @@ interface Candidate {
   errorHandlingScore: number
   codeQualityScore: number
   documentationScore: number
+  confidenceTier?: 'High' | 'Medium' | 'Low'
+  tabSwitches?: number
+  pasteCount?: number
+  avgAnswerSeconds?: number
   badgeToken: string
   issuedAt: string
   primaryLanguage: string
@@ -37,7 +44,10 @@ export default function RecruiterPage() {
   const [selected, setSelected] = useState<Candidate | null>(null)
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'score' | 'date'>('score')
+  const [confidenceFilter, setConfidenceFilter] = useState<'ALL' | 'High' | 'Medium' | 'Low'>('ALL')
   const [user, setUser] = useState<any>(null)
+  const [loadError, setLoadError] = useState('')
+  const [fallbackInfo, setFallbackInfo] = useState('')
 
   useEffect(() => {
     const token = localStorage.getItem('sp_token')
@@ -46,13 +56,29 @@ export default function RecruiterPage() {
     if (userStr) setUser(JSON.parse(userStr))
 
     api.get('/api/recruiter/candidates')
-      .then(res => { setCandidates(res.data); setLoading(false) })
-      .catch(() => {
-        // Demo fallback
+      .then(res => {
+        setCandidates(res.data)
+        setLoading(false)
+      })
+      .catch((err) => {
+        const parsed = parseApiError(err, 'Could not load candidates. Showing demo data.')
+        setLoadError(parsed.message)
+
+        const status = err?.response?.status
+        const isRoleError = status === 403 || parsed.code === 'RECRUITER_ROLE_REQUIRED'
+
+        if (isRoleError) {
+          setCandidates([])
+          setFallbackInfo('')
+          setLoading(false)
+          return
+        }
+
+        setFallbackInfo('Showing demo candidates until backend data is available.')
         setCandidates([
-          { sessionId: 1, githubUsername: 'Gowtham232004', avatarUrl: '', displayName: 'Gowtham M S', repoName: 'Automl', overallScore: 78, backendScore: 85, apiDesignScore: 72, errorHandlingScore: 68, codeQualityScore: 88, documentationScore: 55, badgeToken: 'sp_demo', issuedAt: new Date().toISOString(), primaryLanguage: 'TypeScript' },
-          { sessionId: 2, githubUsername: 'priya_s', avatarUrl: '', displayName: 'Priya Sharma', repoName: 'ecommerce-api', overallScore: 87, backendScore: 92, apiDesignScore: 85, errorHandlingScore: 80, codeQualityScore: 90, documentationScore: 70, badgeToken: 'sp_demo2', issuedAt: new Date().toISOString(), primaryLanguage: 'Java' },
-          { sessionId: 3, githubUsername: 'arjun_n', avatarUrl: '', displayName: 'Arjun Nair', repoName: 'ml-pipeline', overallScore: 71, backendScore: 75, apiDesignScore: 68, errorHandlingScore: 60, codeQualityScore: 82, documentationScore: 50, badgeToken: 'sp_demo3', issuedAt: new Date().toISOString(), primaryLanguage: 'Python' },
+          { sessionId: 1, githubUsername: 'Gowtham232004', avatarUrl: '', displayName: 'Gowtham M S', repoName: 'Automl', overallScore: 78, backendScore: 85, apiDesignScore: 72, errorHandlingScore: 68, codeQualityScore: 88, documentationScore: 55, confidenceTier: 'Medium', tabSwitches: 1, pasteCount: 0, avgAnswerSeconds: 56, badgeToken: 'sp_demo', issuedAt: new Date().toISOString(), primaryLanguage: 'TypeScript' },
+          { sessionId: 2, githubUsername: 'priya_s', avatarUrl: '', displayName: 'Priya Sharma', repoName: 'ecommerce-api', overallScore: 87, backendScore: 92, apiDesignScore: 85, errorHandlingScore: 80, codeQualityScore: 90, documentationScore: 70, confidenceTier: 'High', tabSwitches: 0, pasteCount: 0, avgAnswerSeconds: 82, badgeToken: 'sp_demo2', issuedAt: new Date().toISOString(), primaryLanguage: 'Java' },
+          { sessionId: 3, githubUsername: 'arjun_n', avatarUrl: '', displayName: 'Arjun Nair', repoName: 'ml-pipeline', overallScore: 71, backendScore: 75, apiDesignScore: 68, errorHandlingScore: 60, codeQualityScore: 82, documentationScore: 50, confidenceTier: 'Low', tabSwitches: 4, pasteCount: 3, avgAnswerSeconds: 20, badgeToken: 'sp_demo3', issuedAt: new Date().toISOString(), primaryLanguage: 'Python' },
         ])
         setLoading(false)
       })
@@ -64,6 +90,7 @@ export default function RecruiterPage() {
       c.githubUsername.toLowerCase().includes(search.toLowerCase()) ||
       c.repoName.toLowerCase().includes(search.toLowerCase())
     )
+    .filter(c => confidenceFilter === 'ALL' || c.confidenceTier === confidenceFilter)
     .sort((a, b) => sortBy === 'score'
       ? b.overallScore - a.overallScore
       : new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()
@@ -74,6 +101,8 @@ export default function RecruiterPage() {
     : 0
 
   const scoreColor = (s: number) => s >= 80 ? '#34D399' : s >= 60 ? '#F59E0B' : '#F472B6'
+  const confidenceColor = (tier?: Candidate['confidenceTier']) =>
+    tier === 'High' ? '#34D399' : tier === 'Medium' ? '#F59E0B' : '#EF4444'
 
   return (
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: 'Outfit, sans-serif' }}>
@@ -123,6 +152,13 @@ export default function RecruiterPage() {
           ))}
         </motion.div>
 
+        {loadError && (
+          <>
+            <ErrorBanner message={loadError} code="CANDIDATE_LOAD_ERROR" />
+            {fallbackInfo && <InfoBanner message={fallbackInfo} compact />}
+          </>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 340px' : '1fr', gap: 16, alignItems: 'start' }}>
 
           {/* List */}
@@ -131,6 +167,16 @@ export default function RecruiterPage() {
             <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, username, or repo..."
                 style={{ flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', fontSize: 14, fontFamily: 'Outfit, sans-serif', outline: 'none' }} />
+              <select
+                value={confidenceFilter}
+                onChange={e => setConfidenceFilter(e.target.value as 'ALL' | 'High' | 'Medium' | 'Low')}
+                style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', fontSize: 12, fontFamily: 'JetBrains Mono, monospace', outline: 'none' }}
+              >
+                <option value="ALL" style={{ background: '#0A0A0A' }}>All Confidence</option>
+                <option value="High" style={{ background: '#0A0A0A' }}>High</option>
+                <option value="Medium" style={{ background: '#0A0A0A' }}>Medium</option>
+                <option value="Low" style={{ background: '#0A0A0A' }}>Low</option>
+              </select>
               {(['score', 'date'] as const).map(s => (
                 <motion.button key={s} whileHover={{ scale: 1.02 }} onClick={() => setSortBy(s)}
                   style={{ padding: '10px 16px', background: sortBy === s ? 'rgba(212,255,0,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${sortBy === s ? 'rgba(212,255,0,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 10, color: sortBy === s ? '#D4FF00' : 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
@@ -171,6 +217,13 @@ export default function RecruiterPage() {
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.displayName || c.githubUsername}</div>
                           <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.3)' }}>/{c.repoName} {c.primaryLanguage && `· ${c.primaryLanguage}`}</div>
+                          {c.confidenceTier && (
+                            <div style={{ marginTop: 4 }}>
+                              <span style={{ padding: '2px 7px', borderRadius: 999, border: `1px solid ${confidenceColor(c.confidenceTier)}66`, background: `${confidenceColor(c.confidenceTier)}1A`, color: confidenceColor(c.confidenceTier), fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+                                {c.confidenceTier} confidence
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -196,9 +249,9 @@ export default function RecruiterPage() {
 
                       {/* Action */}
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
-                        onClick={e => { e.stopPropagation(); router.push(`/badge/${c.badgeToken}`) }}
+                        onClick={e => { e.stopPropagation(); router.push(`/recruiter/${c.badgeToken}`) }}
                         style={{ padding: '7px 12px', background: 'rgba(212,255,0,0.08)', border: '1px solid rgba(212,255,0,0.2)', borderRadius: 8, color: '#D4FF00', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>
-                        Badge →
+                        Review →
                       </motion.button>
                     </motion.div>
                   )
@@ -243,6 +296,13 @@ export default function RecruiterPage() {
                   })()}
                   <div style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>{selected.displayName}</div>
                   <div style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.35)', marginTop: 3 }}>@{selected.githubUsername} · {selected.repoName}</div>
+                  {selected.confidenceTier && (
+                    <div style={{ marginTop: 8 }}>
+                      <span title="Confidence reflects answer completeness and consistency, not just score." style={{ padding: '3px 8px', borderRadius: 999, border: `1px solid ${confidenceColor(selected.confidenceTier)}66`, background: `${confidenceColor(selected.confidenceTier)}1A`, color: confidenceColor(selected.confidenceTier), fontSize: 11, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+                        Confidence: {selected.confidenceTier}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Skill breakdown */}
@@ -272,12 +332,21 @@ export default function RecruiterPage() {
                   </div>
                 </div>
 
+                <div style={{ padding: '12px 14px', background: 'rgba(96,165,250,0.06)', borderRadius: 10, marginBottom: 16, border: '1px solid rgba(96,165,250,0.22)' }}>
+                  <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(96,165,250,0.8)', marginBottom: 8, letterSpacing: '0.08em' }}>INTEGRITY SIGNALS</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.8 }}>
+                    <div>Tab switches: {selected.tabSwitches ?? 0}</div>
+                    <div>Paste count: {selected.pasteCount ?? 0}</div>
+                    <div>Avg answer time: {selected.avgAnswerSeconds ?? 0}s</div>
+                  </div>
+                </div>
+
                 {/* Actions */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                    onClick={() => router.push(`/badge/${selected.badgeToken}`)}
+                    onClick={() => router.push(`/recruiter/${selected.badgeToken}`)}
                     style={{ width: '100%', padding: '12px', background: '#D4FF00', border: 'none', borderRadius: 10, color: '#000', fontWeight: 800, fontSize: 14, cursor: 'pointer', fontFamily: 'Outfit, sans-serif' }}>
-                    View Full Badge →
+                    Open Detailed Review →
                   </motion.button>
                   <motion.button whileHover={{ scale: 1.02 }}
                     onClick={() => { navigator.clipboard.writeText(`http://localhost:3000/badge/${selected.badgeToken}`); }}

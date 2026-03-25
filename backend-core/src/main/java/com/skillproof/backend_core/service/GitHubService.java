@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import com.skillproof.backend_core.dto.response.GitHubUserResponse;
+import com.skillproof.backend_core.exception.ApiException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -77,26 +79,46 @@ public class GitHubService {
             log.info("📝 GitHub response: {}", responseBody);
             
             if (responseBody == null) {
-                throw new RuntimeException("GitHub returned null response");
+                throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "GITHUB_NULL_RESPONSE",
+                    "GitHub returned null response"
+                );
             }
             
             if (responseBody.containsKey("error")) {
                 String error = (String) responseBody.get("error");
                 String errorDescription = (String) responseBody.getOrDefault("error_description", "");
                 log.error("❌ GitHub OAuth error: {} - {}", error, errorDescription);
-                throw new RuntimeException("GitHub OAuth error: " + error + " - " + errorDescription);
+                throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "GITHUB_OAUTH_ERROR",
+                    "GitHub OAuth error: " + error + " - " + errorDescription,
+                    Map.of("providerError", error)
+                );
             }
             
             if (!responseBody.containsKey("access_token")) {
                 log.error("❌ No access_token in GitHub response: {}", responseBody);
-                throw new RuntimeException("GitHub token exchange failed: no access_token in response");
+                throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "GITHUB_TOKEN_MISSING",
+                    "GitHub token exchange failed: no access_token in response"
+                );
             }
             
             log.info("✅ Successfully obtained access token");
             return (String) responseBody.get("access_token");
+        } catch (ApiException ex) {
+            throw ex;
         } catch (Exception e) {
             log.error("❌ GitHub token exchange error: {}", e.getMessage());
-            throw new RuntimeException("GitHub token exchange failed: " + e.getMessage(), e);
+            throw new ApiException(
+                HttpStatus.BAD_GATEWAY,
+                "GITHUB_TOKEN_EXCHANGE_FAILED",
+                "GitHub token exchange failed",
+                Map.of("reason", e.getMessage() == null ? "unknown" : e.getMessage())
+            );
         }
     }
 

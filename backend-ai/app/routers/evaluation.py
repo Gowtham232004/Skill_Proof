@@ -20,9 +20,8 @@ async def evaluate_answers_endpoint(request: EvaluateAnswersRequest):
     )
 
     try:
-        # Use code_context from first answer as the summary for all evaluations
-        code_summary = request.answers[0].code_context if request.answers else ""
-        results, skill_scores = evaluate_answers(request.answers, code_summary)
+        # Evaluate each answer against its own code_context
+        results, skill_scores = evaluate_answers(request.answers)
 
         return EvaluateAnswersResponse(
             session_id=request.session_id,
