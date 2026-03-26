@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { getRecruiterCandidateDetail } from '@/lib/api'
+import { getRecruiterCandidateDetail, getRecruiterReferenceAnswer } from '@/lib/api'
 import { parseApiError } from '@/lib/apiError'
 import ErrorBanner from '@/app/components/ErrorBanner'
 
@@ -93,6 +93,8 @@ export default function RecruiterCandidateDetailPage() {
   const [detail, setDetail] = useState<CandidateDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [referenceAnswers, setReferenceAnswers] = useState<Record<number, { referenceAnswer: string; reviewCheckpoints: string[] }>>({})
+  const [referenceLoading, setReferenceLoading] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
     getRecruiterCandidateDetail(token)
@@ -141,6 +143,34 @@ export default function RecruiterCandidateDetailPage() {
   const copyEvents = detail.integrityPenaltyBreakdown?.copyEvents ?? 0
   const coachingPatternDetected = (detail.integrityPenaltyBreakdown?.coachingPatternDetected ?? 0) > 0
   const integrityRiskFlag = copyEvents > 0 || (detail.integrityPenaltyBreakdown?.copyPenalty ?? 0) > 0 || coachingPatternDetected
+
+  const handleLoadReferenceAnswer = async (questionNumber: number) => {
+    if (referenceAnswers[questionNumber] || referenceLoading[questionNumber]) {
+      return
+    }
+
+    setReferenceLoading(prev => ({ ...prev, [questionNumber]: true }))
+    try {
+      const res = await getRecruiterReferenceAnswer(token, questionNumber)
+      const referenceAnswer = String(res.data?.referenceAnswer ?? '').trim()
+      const reviewCheckpoints = Array.isArray(res.data?.reviewCheckpoints)
+        ? res.data.reviewCheckpoints.map((item: unknown) => String(item)).filter(Boolean)
+        : []
+
+      setReferenceAnswers(prev => ({
+        ...prev,
+        [questionNumber]: {
+          referenceAnswer,
+          reviewCheckpoints,
+        },
+      }))
+    } catch (err) {
+      const parsed = parseApiError(err, 'Unable to load AI reference answer for this question.')
+      setError(parsed.message)
+    } finally {
+      setReferenceLoading(prev => ({ ...prev, [questionNumber]: false }))
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: 'Outfit, sans-serif', padding: '24px 24px 64px' }}>
@@ -341,8 +371,40 @@ export default function RecruiterCandidateDetailPage() {
                   </div>
 
                   <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(96,165,250,0.25)', background: 'rgba(96,165,250,0.1)', fontSize: 12, color: 'rgba(191,219,254,0.92)', lineHeight: 1.55 }}>
-                    <b>AI feedback:</b> {q.aiFeedback || 'No AI feedback available.'}
+                    <b>AI scoring rationale:</b> {q.aiFeedback || 'No AI feedback available.'}
                   </div>
+
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      onClick={() => handleLoadReferenceAnswer(q.questionNumber)}
+                      disabled={!!referenceLoading[q.questionNumber]}
+                      style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(212,255,0,0.3)', background: 'rgba(212,255,0,0.08)', color: '#D4FF00', fontSize: 12, fontFamily: 'JetBrains Mono, monospace', cursor: referenceLoading[q.questionNumber] ? 'not-allowed' : 'pointer' }}
+                    >
+                      {referenceLoading[q.questionNumber]
+                        ? 'Generating reference...'
+                        : referenceAnswers[q.questionNumber]
+                          ? 'Reference answer loaded'
+                          : 'Load AI reference answer'}
+                    </button>
+                  </div>
+
+                  {referenceAnswers[q.questionNumber] && (
+                    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.1)' }}>
+                      <div style={{ fontSize: 11, color: 'rgba(110,231,183,0.9)', fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.08em', marginBottom: 8 }}>
+                        AI REFERENCE ANSWER (RECRUITER AID)
+                      </div>
+                      <div style={{ fontSize: 12, color: 'rgba(220,252,231,0.9)', lineHeight: 1.55 }}>
+                        {referenceAnswers[q.questionNumber].referenceAnswer || 'Reference answer unavailable.'}
+                      </div>
+                      {referenceAnswers[q.questionNumber].reviewCheckpoints.length > 0 && (
+                        <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'rgba(220,252,231,0.86)', fontSize: 12, lineHeight: 1.5 }}>
+                          {referenceAnswers[q.questionNumber].reviewCheckpoints.map((point, idx) => (
+                            <li key={idx}>{point}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
               </details>
             </motion.div>

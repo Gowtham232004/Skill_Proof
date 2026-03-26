@@ -202,3 +202,30 @@ Return this exact JSON:
   "targets_identifier": "specific function/class/variable/behavior name"
 }}
 """
+
+
+REFERENCE_ANSWER_PROMPT = """
+You are a senior engineer creating a recruiter review baseline.
+
+QUESTION:
+{question_text}
+
+FILE REFERENCE:
+{file_reference}
+
+CODE CONTEXT:
+{code_context}
+
+Return ONLY valid JSON with this exact shape:
+{{
+  "reference_answer": "A concise but technically correct answer grounded in the provided code context.",
+  "review_checkpoints": [
+    "3-5 short bullets a recruiter can use to validate the candidate answer"
+  ]
+}}
+
+Rules:
+- Keep the reference answer focused and concrete.
+- Do not invent APIs not present in code context.
+- Avoid markdown/code fences.
+"""

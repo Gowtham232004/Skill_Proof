@@ -5,7 +5,7 @@ import re
 import time
 from groq import Groq
 from app.models.evaluation_models import SingleAnswerResult, SkillScores
-from app.utils.prompt_templates import ANSWER_EVALUATION_PROMPT
+from app.utils.prompt_templates import ANSWER_EVALUATION_PROMPT, REFERENCE_ANSWER_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -282,3 +282,46 @@ def evaluate_answers(questions_and_answers: list):
 
     logger.info(f"Evaluation complete: {len(results)} answers, overall={overall}")
     return results, skill_scores
+
+
+def generate_reference_answer(question_text: str, file_reference: str, code_context: str) -> dict:
+    prompt = REFERENCE_ANSWER_PROMPT.format(
+        question_text=(question_text or "").strip(),
+        file_reference=(file_reference or "unknown").strip(),
+        code_context=(code_context or "")[:3500],
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        max_tokens=320,
+    )
+
+    raw = response.choices[0].message.content.strip()
+    start = raw.find('{')
+    end = raw.rfind('}') + 1
+    if start < 0 or end <= start:
+        raise ValueError("No JSON object found in reference answer response")
+
+    json_str = raw[start:end].strip()
+    try:
+        parsed = json.loads(json_str)
+    except json.JSONDecodeError:
+        repaired = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_str)
+        repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+        parsed = json.loads(repaired)
+
+    reference_answer = str(parsed.get("reference_answer", "")).strip()
+    checkpoints = parsed.get("review_checkpoints", [])
+    if not isinstance(checkpoints, list):
+        checkpoints = []
+
+    sanitized_checkpoints = [str(item).strip() for item in checkpoints if str(item).strip()][:5]
+    if not reference_answer:
+        reference_answer = "Reference answer unavailable for this question."
+
+    return {
+        "reference_answer": reference_answer,
+        "review_checkpoints": sanitized_checkpoints,
+    }

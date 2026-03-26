@@ -174,6 +174,61 @@ public class AiGatewayService {
         }
     }
 
+    public Map<String, Object> generateReferenceAnswer(String questionText,
+                                                        String fileRef,
+                                                        String codeContext) {
+        try {
+            Map<String, Object> request = Map.of(
+                "question_text", questionText != null ? questionText : "",
+                "file_reference", fileRef != null ? fileRef : "",
+                "code_context", codeContext != null ? codeContext : ""
+            );
+
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            String url = aiServiceUrl + "/internal/generate-reference-answer";
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                throw new ApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI_REFERENCE_ANSWER_UNAVAILABLE",
+                    "AI reference answer service returned an empty response."
+                );
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(response, Map.class);
+            Object status = parsed.get("status");
+            if (!(status instanceof String statusText) || !"success".equalsIgnoreCase(statusText)) {
+                throw new ApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI_REFERENCE_ANSWER_UNAVAILABLE",
+                    "AI reference answer service did not return success status."
+                );
+            }
+
+            String referenceAnswer = String.valueOf(parsed.getOrDefault("reference_answer", "")).trim();
+            Object checkpointsRaw = parsed.get("review_checkpoints");
+            List<?> checkpoints = checkpointsRaw instanceof List<?> list ? list : List.of();
+
+            return Map.of(
+                "referenceAnswer", referenceAnswer,
+                "reviewCheckpoints", checkpoints
+            );
+        } catch (RestClientException | JsonProcessingException e) {
+            log.error("Reference answer AI call failed", e);
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_REFERENCE_ANSWER_UNAVAILABLE",
+                "AI reference answer service is currently unavailable. Please try again."
+            );
+        }
+    }
+
     public List<Question> generateQuestionsViaAI(VerificationSession session,
                                                    String codeSummary,
                                                    String primaryLanguage,

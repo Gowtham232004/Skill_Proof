@@ -40,6 +40,7 @@ public class RecruiterController {
     private final AnswerRepository answerRepository;
     private final UserRepository userRepository;
     private final BadgeService badgeService;
+    private final com.skillproof.backend_core.service.AiGatewayService aiGatewayService;
 
     private static final Set<User.Role> RECRUITER_ROLES = Set.of(
         User.Role.RECRUITER,
@@ -161,6 +162,46 @@ public class RecruiterController {
 
         log.info("Recruiter {} revealed full answer for badge {} question {}",
             user.getGithubUsername(), badgeToken, questionNumber);
+
+        return ResponseEntity.ok(payload);
+    }
+
+    @GetMapping("/candidates/{badgeToken}/questions/{questionNumber}/reference-answer")
+    public ResponseEntity<Map<String, Object>> getReferenceAnswer(
+            @PathVariable String badgeToken,
+            @PathVariable Integer questionNumber,
+            Authentication authentication) {
+
+        Long userId = (Long) authentication.getPrincipal();
+        ensureRecruiterRole(userId);
+
+        Badge badge = badgeRepository.findByVerificationToken(badgeToken)
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                "BADGE_NOT_FOUND",
+                "Badge not found"
+            ));
+
+        Answer answer = answerRepository
+            .findByQuestionSessionIdAndQuestionQuestionNumber(badge.getSession().getId(), questionNumber)
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                "ANSWER_NOT_FOUND",
+                "Answer not found for this question"
+            ));
+
+        Map<String, Object> aiResult = aiGatewayService.generateReferenceAnswer(
+            answer.getQuestion().getQuestionText(),
+            answer.getQuestion().getFileReference(),
+            answer.getQuestion().getCodeContext()
+        );
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("badgeToken", badgeToken);
+        payload.put("questionNumber", questionNumber);
+        payload.put("referenceAnswer", aiResult.get("referenceAnswer"));
+        payload.put("reviewCheckpoints", aiResult.get("reviewCheckpoints"));
+        payload.put("status", "success");
 
         return ResponseEntity.ok(payload);
     }

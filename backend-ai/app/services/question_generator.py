@@ -16,6 +16,15 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 ALLOWED_TYPES = {"CODE_GROUNDED", "CONCEPTUAL"}
 
 
+def _safe_json_loads(raw_json: str):
+    try:
+        return json.loads(raw_json)
+    except json.JSONDecodeError:
+        repaired = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', raw_json)
+        repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+        return json.loads(repaired)
+
+
 def _extract_json_object(raw: str) -> dict:
     text = raw.strip()
     if "```" in text:
@@ -30,7 +39,7 @@ def _extract_json_object(raw: str) -> dict:
     if left == -1 or right == -1 or left >= right:
         raise ValueError("No JSON object found in Groq response")
 
-    return json.loads(text[left:right + 1])
+    return _safe_json_loads(text[left:right + 1])
 
 def _expected_difficulty(index: int, total_questions: int) -> str:
     if total_questions <= 5:
@@ -199,7 +208,7 @@ def generate_questions(
                     raise ValueError("No JSON array found in Groq response")
             
             logger.info(f"Parsed JSON: {raw[:200]}...")
-            parsed = json.loads(raw.strip())
+            parsed = _safe_json_loads(raw.strip())
             
             # Normalize field names: camelCase → snake_case (Groq returns camelCase)
             for q in parsed:
