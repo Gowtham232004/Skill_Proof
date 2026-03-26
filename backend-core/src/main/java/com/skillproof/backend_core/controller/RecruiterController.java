@@ -14,7 +14,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillproof.backend_core.dto.response.BadgeResponse;
 import com.skillproof.backend_core.exception.ApiException;
 import com.skillproof.backend_core.model.Answer;
@@ -41,6 +45,7 @@ public class RecruiterController {
     private final UserRepository userRepository;
     private final BadgeService badgeService;
     private final com.skillproof.backend_core.service.AiGatewayService aiGatewayService;
+    private final ObjectMapper objectMapper;
 
     private static final Set<User.Role> RECRUITER_ROLES = Set.of(
         User.Role.RECRUITER,
@@ -170,6 +175,7 @@ public class RecruiterController {
     public ResponseEntity<Map<String, Object>> getReferenceAnswer(
             @PathVariable String badgeToken,
             @PathVariable Integer questionNumber,
+            @RequestParam(name = "refresh", defaultValue = "false") boolean refresh,
             Authentication authentication) {
 
         Long userId = (Long) authentication.getPrincipal();
@@ -190,20 +196,74 @@ public class RecruiterController {
                 "Answer not found for this question"
             ));
 
+        boolean hasCachedAnswer = answer.getReferenceAnswer() != null
+            && !answer.getReferenceAnswer().isBlank();
+        if (hasCachedAnswer && !refresh) {
+            log.info("Reference answer cache hit for badge {} question {}", badgeToken, questionNumber);
+            Map<String, Object> cachedPayload = new HashMap<>();
+            cachedPayload.put("badgeToken", badgeToken);
+            cachedPayload.put("questionNumber", questionNumber);
+            cachedPayload.put("referenceAnswer", answer.getReferenceAnswer());
+            cachedPayload.put("reviewCheckpoints", parseReviewCheckpoints(answer.getReviewCheckpointsJson()));
+            cachedPayload.put("generatedAt", answer.getReferenceAnswerGeneratedAt() != null ? answer.getReferenceAnswerGeneratedAt().toString() : null);
+            cachedPayload.put("cached", true);
+            cachedPayload.put("status", "success");
+            return ResponseEntity.ok(cachedPayload);
+        }
+
+        log.info("Reference answer cache miss for badge {} question {} (refresh={})", badgeToken, questionNumber, refresh);
         Map<String, Object> aiResult = aiGatewayService.generateReferenceAnswer(
             answer.getQuestion().getQuestionText(),
             answer.getQuestion().getFileReference(),
             answer.getQuestion().getCodeContext()
         );
 
+        String referenceAnswer = String.valueOf(aiResult.getOrDefault("referenceAnswer", "")).trim();
+        @SuppressWarnings("unchecked")
+        List<Object> reviewCheckpointsRaw = aiResult.get("reviewCheckpoints") instanceof List<?> list
+            ? (List<Object>) list
+            : List.of();
+        List<String> reviewCheckpoints = reviewCheckpointsRaw.stream()
+            .map(item -> String.valueOf(item).trim())
+            .filter(text -> !text.isBlank())
+            .toList();
+
+        answer.setReferenceAnswer(referenceAnswer);
+        answer.setReviewCheckpointsJson(writeReviewCheckpoints(reviewCheckpoints));
+        answer.setReferenceAnswerGeneratedAt(java.time.LocalDateTime.now());
+        answerRepository.save(answer);
+
         Map<String, Object> payload = new HashMap<>();
         payload.put("badgeToken", badgeToken);
         payload.put("questionNumber", questionNumber);
-        payload.put("referenceAnswer", aiResult.get("referenceAnswer"));
-        payload.put("reviewCheckpoints", aiResult.get("reviewCheckpoints"));
+        payload.put("referenceAnswer", referenceAnswer);
+        payload.put("reviewCheckpoints", reviewCheckpoints);
+        payload.put("generatedAt", answer.getReferenceAnswerGeneratedAt().toString());
+        payload.put("cached", false);
         payload.put("status", "success");
 
         return ResponseEntity.ok(payload);
+    }
+
+    private List<String> parseReviewCheckpoints(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
+        } catch (JsonProcessingException ex) {
+            log.warn("Could not parse cached review checkpoints JSON", ex);
+            return List.of();
+        }
+    }
+
+    private String writeReviewCheckpoints(List<String> reviewCheckpoints) {
+        try {
+            return objectMapper.writeValueAsString(reviewCheckpoints);
+        } catch (JsonProcessingException ex) {
+            log.warn("Could not serialize review checkpoints JSON", ex);
+            return "[]";
+        }
     }
 
     private int safeInt(Integer value) {

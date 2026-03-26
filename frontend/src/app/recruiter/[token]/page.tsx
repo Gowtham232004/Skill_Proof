@@ -1,6 +1,6 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { getRecruiterCandidateDetail, getRecruiterReferenceAnswer } from '@/lib/api'
@@ -77,6 +77,11 @@ const typeLabel: Record<NonNullable<QuestionEvidence['questionType']>, string> =
   EDGE_CASE: 'EDGE',
 }
 
+const REFERENCE_CACHE_TTL_MS = 10 * 60 * 1000
+
+const cacheKeyFor = (badgeToken: string, questionNumber: number) =>
+  `sp_ref_answer:${badgeToken}:${questionNumber}`
+
 const truncateCodeContext = (snippet?: string, maxLines = 15) => {
   if (!snippet) {
     return ''
@@ -95,6 +100,95 @@ export default function RecruiterCandidateDetailPage() {
   const [error, setError] = useState('')
   const [referenceAnswers, setReferenceAnswers] = useState<Record<number, { referenceAnswer: string; reviewCheckpoints: string[] }>>({})
   const [referenceLoading, setReferenceLoading] = useState<Record<number, boolean>>({})
+  const referenceCacheRef = useRef<Record<number, { referenceAnswer: string; reviewCheckpoints: string[] }>>({})
+  const inFlightRef = useRef<Map<number, Promise<void>>>(new Map())
+
+  const readLocalReferenceCache = useCallback((questionNumber: number) => {
+    if (typeof window === 'undefined') {
+      return null
+    }
+    try {
+      const raw = window.localStorage.getItem(cacheKeyFor(token, questionNumber))
+      if (!raw) {
+        return null
+      }
+      const parsed = JSON.parse(raw) as {
+        referenceAnswer: string
+        reviewCheckpoints: string[]
+        cachedAt: number
+      }
+      if (!parsed.cachedAt || Date.now() - parsed.cachedAt > REFERENCE_CACHE_TTL_MS) {
+        return null
+      }
+      return {
+        referenceAnswer: parsed.referenceAnswer || '',
+        reviewCheckpoints: Array.isArray(parsed.reviewCheckpoints) ? parsed.reviewCheckpoints : [],
+      }
+    } catch {
+      return null
+    }
+  }, [token])
+
+  const writeLocalReferenceCache = useCallback((
+    questionNumber: number,
+    payload: { referenceAnswer: string; reviewCheckpoints: string[] }
+  ) => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      window.localStorage.setItem(
+        cacheKeyFor(token, questionNumber),
+        JSON.stringify({ ...payload, cachedAt: Date.now() })
+      )
+    } catch {
+      // no-op for storage quota issues
+    }
+  }, [token])
+
+  const requestReferenceAnswer = useCallback(async (questionNumber: number, forceRefresh = false) => {
+    if (referenceCacheRef.current[questionNumber] && !forceRefresh) {
+      return
+    }
+
+    const localCached = !forceRefresh ? readLocalReferenceCache(questionNumber) : null
+    if (localCached) {
+      referenceCacheRef.current[questionNumber] = localCached
+      setReferenceAnswers(prev => ({ ...prev, [questionNumber]: localCached }))
+      return
+    }
+
+    const inFlight = inFlightRef.current.get(questionNumber)
+    if (inFlight) {
+      await inFlight
+      return
+    }
+
+    setReferenceLoading(prev => ({ ...prev, [questionNumber]: true }))
+    const task = (async () => {
+      try {
+        const res = await getRecruiterReferenceAnswer(token, questionNumber, forceRefresh)
+        const payload = {
+          referenceAnswer: String(res.data?.referenceAnswer ?? '').trim(),
+          reviewCheckpoints: Array.isArray(res.data?.reviewCheckpoints)
+            ? res.data.reviewCheckpoints.map((item: unknown) => String(item)).filter(Boolean)
+            : [],
+        }
+        referenceCacheRef.current[questionNumber] = payload
+        writeLocalReferenceCache(questionNumber, payload)
+        setReferenceAnswers(prev => ({ ...prev, [questionNumber]: payload }))
+      } catch (err) {
+        const parsed = parseApiError(err, 'Unable to load AI reference answer for this question.')
+        setError(parsed.message)
+      } finally {
+        setReferenceLoading(prev => ({ ...prev, [questionNumber]: false }))
+        inFlightRef.current.delete(questionNumber)
+      }
+    })()
+
+    inFlightRef.current.set(questionNumber, task)
+    await task
+  }, [token, readLocalReferenceCache, writeLocalReferenceCache])
 
   useEffect(() => {
     getRecruiterCandidateDetail(token)
@@ -108,6 +202,33 @@ export default function RecruiterCandidateDetailPage() {
         setLoading(false)
       })
   }, [token])
+
+  useEffect(() => {
+    const questionNumbers = (detail?.questionResults || []).map(q => q.questionNumber)
+    if (questionNumbers.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    const preload = async () => {
+      const queue = [...questionNumbers]
+      const worker = async () => {
+        while (!cancelled && queue.length > 0) {
+          const currentQuestion = queue.shift()
+          if (typeof currentQuestion === 'number') {
+            await requestReferenceAnswer(currentQuestion)
+          }
+        }
+      }
+
+      await Promise.all([worker(), worker()])
+    }
+
+    void preload()
+    return () => {
+      cancelled = true
+    }
+  }, [detail?.questionResults, requestReferenceAnswer])
 
   if (loading) {
     return (
@@ -145,31 +266,7 @@ export default function RecruiterCandidateDetailPage() {
   const integrityRiskFlag = copyEvents > 0 || (detail.integrityPenaltyBreakdown?.copyPenalty ?? 0) > 0 || coachingPatternDetected
 
   const handleLoadReferenceAnswer = async (questionNumber: number) => {
-    if (referenceAnswers[questionNumber] || referenceLoading[questionNumber]) {
-      return
-    }
-
-    setReferenceLoading(prev => ({ ...prev, [questionNumber]: true }))
-    try {
-      const res = await getRecruiterReferenceAnswer(token, questionNumber)
-      const referenceAnswer = String(res.data?.referenceAnswer ?? '').trim()
-      const reviewCheckpoints = Array.isArray(res.data?.reviewCheckpoints)
-        ? res.data.reviewCheckpoints.map((item: unknown) => String(item)).filter(Boolean)
-        : []
-
-      setReferenceAnswers(prev => ({
-        ...prev,
-        [questionNumber]: {
-          referenceAnswer,
-          reviewCheckpoints,
-        },
-      }))
-    } catch (err) {
-      const parsed = parseApiError(err, 'Unable to load AI reference answer for this question.')
-      setError(parsed.message)
-    } finally {
-      setReferenceLoading(prev => ({ ...prev, [questionNumber]: false }))
-    }
+    await requestReferenceAnswer(questionNumber)
   }
 
   return (

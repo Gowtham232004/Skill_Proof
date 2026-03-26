@@ -21,7 +21,9 @@ import com.skillproof.backend_core.model.VerificationSession;
 import com.skillproof.backend_core.repository.AnswerRepository;
 import com.skillproof.backend_core.repository.BadgeRepository;
 import com.skillproof.backend_core.repository.UserRepository;
+import com.skillproof.backend_core.service.AiGatewayService;
 import com.skillproof.backend_core.service.BadgeService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class RecruiterControllerTests {
@@ -39,6 +41,9 @@ class RecruiterControllerTests {
     private BadgeService badgeService;
 
     @Mock
+    private AiGatewayService aiGatewayService;
+
+    @Mock
     private Authentication authentication;
 
     @Test
@@ -47,7 +52,9 @@ class RecruiterControllerTests {
             badgeRepository,
             answerRepository,
             userRepository,
-            badgeService
+            badgeService,
+            aiGatewayService,
+            new ObjectMapper()
         );
 
         User recruiter = User.builder()

@@ -62,5 +62,7 @@ export const getRecruiterCandidateDetail = (badgeToken: string) =>
 export const revealRecruiterCandidateAnswer = (badgeToken: string, questionNumber: number) =>
   api.get(`/api/recruiter/candidates/${badgeToken}/questions/${questionNumber}/answer`)
 
-export const getRecruiterReferenceAnswer = (badgeToken: string, questionNumber: number) =>
-  api.get(`/api/recruiter/candidates/${badgeToken}/questions/${questionNumber}/reference-answer`)
+export const getRecruiterReferenceAnswer = (badgeToken: string, questionNumber: number, refresh = false) =>
+  api.get(`/api/recruiter/candidates/${badgeToken}/questions/${questionNumber}/reference-answer`, {
+    params: refresh ? { refresh: true } : undefined,
+  })
