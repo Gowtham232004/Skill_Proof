@@ -26,13 +26,14 @@ export const startVerification = (repoOwner: string, repoName: string) =>
 export const submitAnswers = (
   sessionId: number,
   answers: { questionId: number; answerText: string; skipped?: boolean }[],
-  meta?: { totalTabSwitches?: number; pasteCount?: number; avgAnswerSeconds?: number }
+  meta?: { totalTabSwitches?: number; pasteCount?: number; totalCopyEvents?: number; avgAnswerSeconds?: number }
 ) =>
   api.post('/api/verify/submit', {
     sessionId,
     answers,
     totalTabSwitches: meta?.totalTabSwitches ?? 0,
     pasteCount: meta?.pasteCount ?? 0,
+    totalCopyEvents: meta?.totalCopyEvents ?? 0,
     avgAnswerSeconds: meta?.avgAnswerSeconds ?? 0,
   })
 

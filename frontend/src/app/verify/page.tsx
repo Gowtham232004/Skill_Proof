@@ -319,6 +319,7 @@ function StepAnswerQuestions({
   const [questionDurationsSeconds, setQuestionDurationsSeconds] = useState<Record<number, number>>({})
   const [totalTabSwitches, setTotalTabSwitches] = useState(0)
   const [pasteCount, setPasteCount] = useState(0)
+  const [totalCopyEvents, setTotalCopyEvents] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [invalidQuestionId, setInvalidQuestionId] = useState<number | null>(null)
@@ -342,8 +343,22 @@ function StepAnswerQuestions({
       }
     }
 
+    const onCopyOrCut = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const fromInputField = !!target?.closest('textarea, input, [contenteditable="true"]')
+      if (!fromInputField) {
+        setTotalCopyEvents(prev => prev + 1)
+      }
+    }
+
     document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    document.addEventListener('copy', onCopyOrCut)
+    document.addEventListener('cut', onCopyOrCut)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      document.removeEventListener('copy', onCopyOrCut)
+      document.removeEventListener('cut', onCopyOrCut)
+    }
   }, [])
 
   const captureCurrentQuestionDuration = () => {
@@ -388,6 +403,7 @@ function StepAnswerQuestions({
       const res = await submitAnswers(sessionId, payload, {
         totalTabSwitches,
         pasteCount,
+        totalCopyEvents,
         avgAnswerSeconds,
       })
       onSubmit(res.data)

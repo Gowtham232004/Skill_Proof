@@ -330,13 +330,15 @@ public class BadgeService {
         int tabSwitches = Objects.requireNonNullElse(badge.getTabSwitches(), 0);
         int pasteCount = Objects.requireNonNullElse(badge.getPasteCount(), 0);
         int avgAnswerSeconds = Objects.requireNonNullElse(badge.getAvgAnswerSeconds(), 0);
+        int copyEvents = readPenaltyBreakdown(badge.getIntegrityPenaltyBreakdown()).getOrDefault("copyEvents", 0);
         return String.format(
-            "%s confidence based on %d answered, %d skipped, tab switches=%d, paste count=%d, avg answer time=%ds, evaluation complete=%s.",
+            "%s confidence based on %d answered, %d skipped, tab switches=%d, paste count=%d, copy events=%d, avg answer time=%ds, evaluation complete=%s.",
             tier,
             answeredCount,
             skippedCount,
             tabSwitches,
             pasteCount,
+            copyEvents,
             avgAnswerSeconds,
             evaluationComplete ? "yes" : "no"
         );
