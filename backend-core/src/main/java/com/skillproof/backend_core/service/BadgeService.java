@@ -107,6 +107,15 @@ public class BadgeService {
 
     // Get public badge data for the badge page
     public BadgeResponse getBadgeByToken(String token) {
+        return getBadgeByToken(token, false);
+    }
+
+    // Recruiter detail view needs complete evidence, including full answer text.
+    public BadgeResponse getBadgeByTokenForRecruiter(String token) {
+        return getBadgeByToken(token, true);
+    }
+
+    private BadgeResponse getBadgeByToken(String token, boolean includeFullAnswers) {
         Badge badge = badgeRepository.findByVerificationToken(token)
             .orElse(null);
 
@@ -130,7 +139,7 @@ public class BadgeService {
             .findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(session.getId());
 
         List<BadgeResponse.QuestionResultDto> questionResults = answers.stream()
-            .map(this::toQuestionResult)
+            .map(answer -> toQuestionResult(answer, includeFullAnswers))
             .toList();
         List<BadgeResponse.FollowUpResultDto> followUpResults = readFollowUpResults(
             badge.getFollowUpResultsJson()
@@ -213,7 +222,7 @@ public class BadgeService {
             .build();
     }
 
-    private BadgeResponse.QuestionResultDto toQuestionResult(Answer answer) {
+    private BadgeResponse.QuestionResultDto toQuestionResult(Answer answer, boolean includeFullAnswers) {
         return BadgeResponse.QuestionResultDto.builder()
             .questionNumber(answer.getQuestion().getQuestionNumber())
             .difficulty(answer.getQuestion().getDifficulty().name())
@@ -228,6 +237,7 @@ public class BadgeService {
             .skipped(isSkipped(answer))
             .answerLength(answer.getAnswerText() == null ? 0 : answer.getAnswerText().trim().length())
             .maskedAnswerExcerpt(maskAnswer(answer.getAnswerText()))
+            .fullAnswerText(includeFullAnswers ? answer.getAnswerText() : null)
             .accuracyScore(answer.getAccuracyScore())
             .depthScore(answer.getDepthScore())
             .specificityScore(answer.getSpecificityScore())

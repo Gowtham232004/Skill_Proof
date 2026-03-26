@@ -121,7 +121,7 @@ public class RecruiterController {
         ensureRecruiterRole(userId);
         log.info("Recruiter {} fetching candidate detail for token {}", userId, badgeToken);
 
-        BadgeResponse response = badgeService.getBadgeByToken(badgeToken);
+        BadgeResponse response = badgeService.getBadgeByTokenForRecruiter(badgeToken);
         if (!response.isValid()) {
             return ResponseEntity.notFound().build();
         }

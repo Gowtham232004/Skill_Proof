@@ -323,6 +323,7 @@ function StepAnswerQuestions({
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [invalidQuestionId, setInvalidQuestionId] = useState<number | null>(null)
+  const lastCopySignalAtRef = useRef<number>(0)
 
   const maxSkips = 2
   const skippedCount = Object.values(skipped).filter(Boolean).length
@@ -337,6 +338,22 @@ function StepAnswerQuestions({
   }, [current])
 
   useEffect(() => {
+    const isQuestionCopyContext = (target: HTMLElement | null) => {
+      if (!target) {
+        return true
+      }
+      return !target.closest('textarea, input, [contenteditable="true"]')
+    }
+
+    const recordCopySignal = () => {
+      const now = Date.now()
+      if (now - lastCopySignalAtRef.current < 120) {
+        return
+      }
+      lastCopySignalAtRef.current = now
+      setTotalCopyEvents(prev => prev + 1)
+    }
+
     const onVisibilityChange = () => {
       if (document.hidden) {
         setTotalTabSwitches(prev => prev + 1)
@@ -345,19 +362,33 @@ function StepAnswerQuestions({
 
     const onCopyOrCut = (event: ClipboardEvent) => {
       const target = event.target as HTMLElement | null
-      const fromInputField = !!target?.closest('textarea, input, [contenteditable="true"]')
-      if (!fromInputField) {
-        setTotalCopyEvents(prev => prev + 1)
+      if (isQuestionCopyContext(target)) {
+        recordCopySignal()
+      }
+    }
+
+    const onCopyHotkey = (event: KeyboardEvent) => {
+      const isCopyShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c'
+      if (!isCopyShortcut) {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const selectedText = window.getSelection()?.toString().trim() || ''
+      if (selectedText.length > 0 && isQuestionCopyContext(target)) {
+        recordCopySignal()
       }
     }
 
     document.addEventListener('visibilitychange', onVisibilityChange)
     document.addEventListener('copy', onCopyOrCut)
     document.addEventListener('cut', onCopyOrCut)
+    document.addEventListener('keydown', onCopyHotkey)
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       document.removeEventListener('copy', onCopyOrCut)
       document.removeEventListener('cut', onCopyOrCut)
+      document.removeEventListener('keydown', onCopyHotkey)
     }
   }, [])
 
