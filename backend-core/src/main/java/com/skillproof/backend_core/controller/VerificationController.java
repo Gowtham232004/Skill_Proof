@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.skillproof.backend_core.dto.request.StartVerificationRequest;
 import com.skillproof.backend_core.dto.request.SubmitAnswersRequest;
+import com.skillproof.backend_core.dto.request.SubmitFollowUpAnswersRequest;
 import com.skillproof.backend_core.dto.response.VerificationResultResponse;
 import com.skillproof.backend_core.dto.response.VerificationStartResponse;
 import com.skillproof.backend_core.service.SubmitAnswersService;
@@ -46,6 +47,22 @@ public ResponseEntity<VerificationResultResponse> submitAnswers(
 
     return ResponseEntity.ok(response);
 }
+
+    @PostMapping("/submit-followups")
+    public ResponseEntity<VerificationResultResponse> submitFollowUpAnswers(
+            @Valid @RequestBody SubmitFollowUpAnswersRequest request,
+            Authentication authentication) {
+
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Follow-up submission from user {} for session {}",
+            userId, request.getSessionId());
+
+        VerificationResultResponse response =
+            submitAnswersService.submitFollowUpAnswers(userId, request);
+
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/start")
     public ResponseEntity<VerificationStartResponse> startVerification(
             @Valid @RequestBody StartVerificationRequest request,

@@ -22,8 +22,15 @@ SkillProof connects to your GitHub, analyzes your actual source code, generates 
 
 ---
 
-## Phase 3 Update (Implemented)
+## Phase 2 + Trust Scoring Update (Implemented)
 
+- Mixed interview mode is supported behind feature flags:
+  - 7 total questions with a 4 code-grounded + 3 conceptual split
+  - Typed question metadata (`CODE_GROUNDED`, `CONCEPTUAL`) propagated through APIs
+  - Type-level score aggregation (`scoreByQuestionType`) visible to candidates and recruiters
+- Weighted technical scoring is supported behind feature flags:
+  - default policy: 60% code-grounded + 40% conceptual
+  - scoring mode and weights are shown in verify, badge, and recruiter views
 - Confidence scoring is computed server-side (`High`/`Medium`/`Low`) and persisted on each badge.
 - Behavioral transparency metrics are captured during verification:
   - tab switches
@@ -226,10 +233,10 @@ Go to `github.com/settings/developers` → New OAuth App:
 2. Selects a repository
 3. Spring Boot fetches source files, filters irrelevant files
 4. Code structure extracted (functions, classes, annotations)
-5. Groq AI generates 5 questions grounded in the actual code
-6. Developer answers 5 questions (wizard UI)
+5. Groq AI generates 5-7 questions grounded in the actual code (mixed mode can include conceptual prompts)
+6. Developer answers all questions in the verification wizard
 7. Groq AI evaluates each answer against the code context
-8. Scores computed: Backend, API Design, Error Handling, Code Quality, Documentation
+8. Scores computed: Backend, API Design, Error Handling, Code Quality, Documentation + type-level scoring (code vs concept)
 9. Confidence tier computed from skip count, answer length, and score consistency
 10. Integrity signals recorded (tab switches, paste count, average answer time)
 11. Badge created and HMAC-SHA256 signed

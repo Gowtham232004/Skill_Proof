@@ -19,8 +19,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _is_tls_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return (
+        "certificate_verify_failed" in text
+        or "unable to get local issuer certificate" in text
+        or "ssl" in text
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    strict_startup = os.getenv("AI_STARTUP_STRICT", "false").lower() == "true"
+
     # Try Gemini, but don't fail if quota exhausted
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
@@ -40,19 +51,42 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("✓ Gemini API key not set. Using Groq Llama 3.1 for AI tasks.")
 
-    # Verify Groq is working
-    try:
-        from groq import Groq
-        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        groq_test = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": "Say OK in one word"}],
-            max_tokens=5
-        )
-        logger.info(f"✓ Groq verified. Response: {groq_test.choices[0].message.content.strip()}")
-    except Exception as e:
-        logger.error(f"❌ Groq key invalid: {e}")
-        raise RuntimeError(f"GROQ_API_KEY not set or invalid in .env")
+    # Verify Groq, but allow non-strict startup to continue when network/TLS fails.
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        message = "GROQ_API_KEY is missing in environment"
+        if strict_startup:
+            logger.error("❌ %s", message)
+            raise RuntimeError("GROQ_API_KEY not set in .env")
+        logger.warning("⚠️  %s. Service may fail on AI endpoints until key is configured.", message)
+    else:
+        try:
+            from groq import Groq
+            groq_client = Groq(api_key=groq_key)
+            groq_test = groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "Say OK in one word"}],
+                max_tokens=5,
+            )
+            logger.info(f"✓ Groq verified. Response: {groq_test.choices[0].message.content.strip()}")
+        except Exception as e:
+            if strict_startup:
+                logger.error("❌ Groq validation failed in strict mode: %s", e)
+                raise RuntimeError("GROQ_API_KEY not set or invalid in .env")
+
+            if _is_tls_error(e):
+                logger.warning(
+                    "⚠️  Groq validation skipped due to TLS certificate issue: %s. "
+                    "On Windows/corporate networks, configure a trusted CA bundle via "
+                    "SSL_CERT_FILE or REQUESTS_CA_BUNDLE.",
+                    e,
+                )
+            else:
+                logger.warning(
+                    "⚠️  Groq could not be validated at startup: %s. "
+                    "Service will continue and retry on requests.",
+                    e,
+                )
 
     logger.info("✓ SkillProof AI Service ready on port 8000")
     yield

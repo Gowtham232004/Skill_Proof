@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import {
   motion, useScroll, useTransform, useInView,
   AnimatePresence, useMotionValue, useSpring
@@ -11,10 +11,11 @@ import { OrbitalPipeline } from './components/OrbitalPipeline'
 // ── Lenis smooth scroll ──────────────────────────────────────────────────────
 function useLenis() {
   useEffect(() => {
-    let lenis: any
+    let lenis: { raf: (t: number) => void; destroy: () => void } | undefined
     import('@studio-freight/lenis').then(({ default: Lenis }) => {
-      lenis = new Lenis({ lerp: 0.00, wheelMultiplier:0.0, smoothWheel:false, syncTouch:false })
-      const raf = (t: number) => { lenis.raf(t); requestAnimationFrame(raf) }
+      const instance = new Lenis({ lerp: 0.00, wheelMultiplier:0.0, smoothWheel:false, syncTouch:false })
+      lenis = instance
+      const raf = (t: number) => { instance.raf(t); requestAnimationFrame(raf) }
       requestAnimationFrame(raf)
     })
     return () => lenis?.destroy()
@@ -62,7 +63,7 @@ function useScramble(text: string, active: boolean) {
 }
 
 // ── Fade-up wrapper ──────────────────────────────────────────────────────────
-function FadeUp({ children, delay = 0, className = '' }: any) {
+function FadeUp({ children, delay = 0, className = '' }: { children: ReactNode; delay?: number; className?: string }) {
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-60px' })
   return (
@@ -77,13 +78,13 @@ function FadeUp({ children, delay = 0, className = '' }: any) {
 }
 
 // ── Magnetic button ──────────────────────────────────────────────────────────
-function MagneticBtn({ children, onClick, style, className }: any) {
+function MagneticBtn({ children, onClick, style, className = '' }: { children: ReactNode; onClick?: () => void; style?: CSSProperties; className?: string }) {
   const ref = useRef<HTMLButtonElement>(null)
   const x = useMotionValue(0)
   const y = useMotionValue(0)
   const sx = useSpring(x, { stiffness: 200, damping: 20 })
   const sy = useSpring(y, { stiffness: 200, damping: 20 })
-  const handleMove = (e: React.MouseEvent) => {
+  const handleMove = (e: ReactMouseEvent<HTMLButtonElement>) => {
     const rect = ref.current!.getBoundingClientRect()
     x.set((e.clientX - rect.left - rect.width / 2) * 0.3)
     y.set((e.clientY - rect.top - rect.height / 2) * 0.3)
@@ -100,10 +101,10 @@ function MagneticBtn({ children, onClick, style, className }: any) {
 }
 
 // ── Spotlight card ───────────────────────────────────────────────────────────
-function SpotlightCard({ children, className = '', accentColor = 'rgba(212,255,0,0.07)' }: any) {
+function SpotlightCard({ children, className = '', accentColor = 'rgba(212,255,0,0.07)' }: { children: ReactNode; className?: string; accentColor?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const [spot, setSpot] = useState({ x: -999, y: -999, opacity: 0 })
-  const handleMove = (e: React.MouseEvent) => {
+  const handleMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const rect = ref.current?.getBoundingClientRect()
     if (!rect) return
     setSpot({ x: e.clientX - rect.left, y: e.clientY - rect.top, opacity: 1 })
@@ -120,13 +121,13 @@ function SpotlightCard({ children, className = '', accentColor = 'rgba(212,255,0
 }
 
 // ── Tilt card (3D hover) ─────────────────────────────────────────────────────
-function TiltCard({ children, style }: any) {
+function TiltCard({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   const ref = useRef<HTMLDivElement>(null)
   const rotX = useMotionValue(0)
   const rotY = useMotionValue(0)
   const sRotX = useSpring(rotX, { stiffness: 150, damping: 20 })
   const sRotY = useSpring(rotY, { stiffness: 150, damping: 20 })
-  const handleMove = (e: React.MouseEvent) => {
+  const handleMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const rect = ref.current!.getBoundingClientRect()
     const nx = (e.clientX - rect.left) / rect.width - 0.5
     const ny = (e.clientY - rect.top) / rect.height - 0.5
@@ -230,7 +231,7 @@ function HeroTerminal() {
 }
 
 // ── Gradient border wrapper ──────────────────────────────────────────────────
-function GradBorder({ children, colors = ['#D4FF00', '#34D399', '#60A5FA'], style }: any) {
+function GradBorder({ children, colors = ['#D4FF00', '#34D399', '#60A5FA'], style }: { children: ReactNode; colors?: string[]; style?: CSSProperties }) {
   return (
     <div style={{ position: 'relative', borderRadius: 22, padding: 1.5, background: `linear-gradient(135deg,${colors.join(',')})`, ...style }}>
       <div style={{ background: '#0D0D0D', borderRadius: 21, height: '100%' }}>
@@ -267,7 +268,7 @@ function TestimonialCard({ t }: { t: typeof TESTIMONIALS[0] }) {
         </div>
         <div style={{ marginLeft: 'auto', fontSize: 22, fontWeight: 900, color: '#D4FF00', letterSpacing: '-0.03em', fontFamily: 'JetBrains Mono,monospace' }}>{t.score}</div>
       </div>
-      <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7, margin: 0 }}>"{t.text}"</p>
+      <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7, margin: 0 }}>&ldquo;{t.text}&rdquo;</p>
     </motion.div>
   )
 }
@@ -289,7 +290,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     const onScroll = () => setNavScrolled(window.scrollY > 40)
-    const onMouse = (e: MouseEvent) => { mouseX.set(e.clientX); mouseY.set(e.clientY) }
+    const onMouse = (e: globalThis.MouseEvent) => { mouseX.set(e.clientX); mouseY.set(e.clientY) }
     window.addEventListener('scroll', onScroll)
     window.addEventListener('mousemove', onMouse)
     return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('mousemove', onMouse) }
@@ -308,8 +309,9 @@ export default function LandingPage() {
         console.error('No URL in response:', res.data)
         setLoading(false)
       }
-    } catch (err: any) {
-      console.error('GitHub auth error:', err.response?.status, err.response?.data || err.message)
+    } catch (err: unknown) {
+      const apiErr = err as { response?: { status?: number; data?: unknown }; message?: string }
+      console.error('GitHub auth error:', apiErr.response?.status, apiErr.response?.data || apiErr.message)
       setLoading(false)
     }
   }
@@ -436,7 +438,7 @@ export default function LandingPage() {
       {/* ── FLOATING BADGE PREVIEW ───────────────────────────────────────────── */}
       <section style={{ padding: '80px 24px 100px', maxWidth: 860, margin: '0 auto', textAlign: 'center' }}>
         <FadeUp>
-          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// SAMPLE BADGE</span>
+          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>SAMPLE BADGE</span>
           <h2 style={{ fontSize: 'clamp(32px,4vw,50px)', fontWeight: 900, letterSpacing: '-0.03em', margin: '14px 0 48px', lineHeight: 1.08 }}>
             This is what recruiters see.
           </h2>
@@ -501,7 +503,7 @@ export default function LandingPage() {
       <section style={{ padding: '100px 24px 120px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeUp>
           <div style={{ textAlign: 'center', marginBottom: 72 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// THE PIPELINE</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>THE PIPELINE</span>
             <h2 style={{ fontSize: 'clamp(36px,5vw,66px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14, lineHeight: 1.04 }}>
               Seven layers of<br /><span style={{ color: 'rgba(255,255,255,0.18)' }}>pure engineering.</span>
             </h2>
@@ -521,7 +523,7 @@ export default function LandingPage() {
       <section id="how-it-works" style={{ padding: '120px 24px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeUp>
           <div style={{ textAlign: 'center', marginBottom: 80 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// HOW IT WORKS</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>HOW IT WORKS</span>
             <h2 style={{ fontSize: 'clamp(36px,5vw,62px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14, lineHeight: 1.04 }}>
               Code to credential<br /><span style={{ color: 'rgba(255,255,255,0.22)' }}>in under 2 minutes.</span>
             </h2>
@@ -558,7 +560,7 @@ export default function LandingPage() {
       <section id="features" style={{ padding: '60px 24px 120px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeUp>
           <div style={{ textAlign: 'center', marginBottom: 64 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// PLATFORM FEATURES</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>PLATFORM FEATURES</span>
             <h2 style={{ fontSize: 'clamp(36px,5vw,62px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14, lineHeight: 1.04 }}>
               Not just another<br /><span style={{ color: 'rgba(255,255,255,0.22)' }}>coding test.</span>
             </h2>
@@ -583,7 +585,7 @@ export default function LandingPage() {
               <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.42)', maxWidth: 380, lineHeight: 1.7 }}>Questions generated from your actual code. Every session is unique — studying the repo is the intended behavior.</p>
               <div style={{ marginTop: 24, padding: '18px 22px', background: 'rgba(0,0,0,0.5)', borderRadius: 16, border: '1px solid rgba(212,255,0,0.1)' }}>
                 <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono,monospace', color: 'rgba(212,255,0,0.5)', marginBottom: 8, letterSpacing: '0.1em' }}>Q3 / MEDIUM — middleware.ts</div>
-                <code style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: '#D4FF00', lineHeight: 1.6 }}>"In your withAuth() function, what happens if token verification throws an unexpected exception?"</code>
+                <code style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: '#D4FF00', lineHeight: 1.6 }}>&quot;In your withAuth() function, what happens if token verification throws an unexpected exception?&quot;</code>
               </div>
             </div>
           </motion.div>
@@ -636,7 +638,7 @@ export default function LandingPage() {
       <section style={{ padding: '80px 0 100px', overflow: 'hidden' }}>
         <FadeUp>
           <div style={{ textAlign: 'center', marginBottom: 52, padding: '0 24px' }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// DEVELOPER STORIES</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>DEVELOPER STORIES</span>
             <h2 style={{ fontSize: 'clamp(32px,4vw,52px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14 }}>
               From verified developers.
             </h2>
@@ -654,11 +656,11 @@ export default function LandingPage() {
       <section id="for-companies" style={{ padding: '80px 24px 120px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 80, alignItems: 'center' }}>
           <FadeUp>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// FOR COMPANIES</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>FOR COMPANIES</span>
             <h2 style={{ fontSize: 'clamp(32px,4vw,54px)', fontWeight: 900, letterSpacing: '-0.035em', margin: '16px 0 22px', lineHeight: 1.08 }}>
               Hire on verified<br /><span style={{ color: '#D4FF00' }}>evidence.</span><br /><span style={{ color: 'rgba(255,255,255,0.22)' }}>Not claims.</span>
             </h2>
-            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.42)', lineHeight: 1.75, marginBottom: 36 }}>Every candidate has a score built from their actual projects. No more 2-hour calls for developers who can't explain their own code.</p>
+            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.42)', lineHeight: 1.75, marginBottom: 36 }}>Every candidate has a score built from their actual projects. No more 2-hour calls for developers who can&apos;t explain their own code.</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {[
                 { n: '80%', t: 'Less screening time per hire', icon: '↓' },
@@ -682,7 +684,7 @@ export default function LandingPage() {
             <SpotlightCard>
               <div style={{ padding: 26 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-                  <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>// recruiter_dashboard</div>
+                  <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>recruiter_dashboard</div>
                   <div style={{ display: 'flex', gap: 5 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ff5f56' }} />
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ffbd2e' }} />
@@ -725,7 +727,7 @@ export default function LandingPage() {
       <section style={{ padding: '60px 24px 120px', maxWidth: 1200, margin: '0 auto' }}>
         <FadeUp>
           <div style={{ textAlign: 'center', marginBottom: 60 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// WHAT WE MEASURE</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>WHAT WE MEASURE</span>
             <h2 style={{ fontSize: 'clamp(36px,5vw,58px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14, lineHeight: 1.04 }}>
               Five dimensions.<br /><span style={{ color: 'rgba(255,255,255,0.2)' }}>One score.</span>
             </h2>
@@ -775,7 +777,7 @@ export default function LandingPage() {
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <FadeUp>
             <div style={{ textAlign: 'center', marginBottom: 72 }}>
-              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// PRICING</span>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>PRICING</span>
               <h2 style={{ fontSize: 'clamp(36px,5vw,62px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14, lineHeight: 1.04 }}>
                 Simple, honest pricing.<br /><span style={{ color: 'rgba(255,255,255,0.22)' }}>No surprises.</span>
               </h2>
@@ -831,7 +833,7 @@ export default function LandingPage() {
       <section style={{ padding: '80px 24px 120px', maxWidth: 740, margin: '0 auto' }}>
         <FadeUp>
           <div style={{ textAlign: 'center', marginBottom: 60 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>// FAQ</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase' }}>FAQ</span>
             <h2 style={{ fontSize: 'clamp(32px,4vw,54px)', fontWeight: 900, letterSpacing: '-0.035em', marginTop: 14 }}>
               Questions answered.
             </h2>
@@ -859,7 +861,7 @@ export default function LandingPage() {
 
         <FadeUp>
           <div style={{ position: 'relative', zIndex: 10 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase', display: 'block', marginBottom: 28 }}>// GET VERIFIED</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#D4FF00', letterSpacing: '0.22em', textTransform: 'uppercase', display: 'block', marginBottom: 28 }}>GET VERIFIED</span>
             <h2 style={{ fontSize: 'clamp(42px,7vw,86px)', fontWeight: 900, letterSpacing: '-0.045em', lineHeight: 0.95, marginBottom: 26 }}>
               Stop applying with<br />unverified GitHub links.
             </h2>

@@ -16,5 +16,7 @@ public interface BadgeRepository extends JpaRepository<Badge, Long> {
 
     Optional<Badge> findByVerificationToken(String token);
 
+    Optional<Badge> findBySessionId(Long sessionId);
+
     List<Badge> findByUserAndIsActiveTrueOrderByIssuedAtDesc(User user);
 }

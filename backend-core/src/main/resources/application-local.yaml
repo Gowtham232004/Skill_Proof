@@ -15,3 +15,15 @@ spring:
 
 ai-service:
   secret: ${AI_SERVICE_SECRET:dev-internal-secret-change-me}
+
+phase2:
+  mixed-questions-enabled: ${PHASE2_MIXED_QUESTIONS_ENABLED:false}
+  total-questions: ${PHASE2_TOTAL_QUESTIONS:7}
+  conceptual-questions: ${PHASE2_CONCEPTUAL_QUESTIONS:3}
+  weighted-scoring-enabled: ${PHASE2_WEIGHTED_SCORING_ENABLED:false}
+  code-weight-percent: ${PHASE2_CODE_WEIGHT_PERCENT:60}
+  conceptual-weight-percent: ${PHASE2_CONCEPTUAL_WEIGHT_PERCENT:40}
+
+testing:
+  bypass-verification-limit: ${BYPASS_VERIFICATION_LIMIT:true}
+  skip-repo-cooldown: ${SKIP_REPO_COOLDOWN:true}

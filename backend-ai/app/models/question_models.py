@@ -8,6 +8,8 @@ class GenerateQuestionsRequest(BaseModel):
     primary_language: str
     frameworks_detected: List[str]
     repo_name: str
+    total_questions: int = 5
+    conceptual_questions: int = 0
 
 
 class GeneratedQuestion(BaseModel):
@@ -19,10 +21,25 @@ class GeneratedQuestion(BaseModel):
     difficulty: str            # EASY, MEDIUM, HARD
     file_reference: str = Field(..., validation_alias='fileReference')        # Specific file this question targets
     question_text: str = Field(..., validation_alias='questionText')         # The actual question
+    question_type: str = Field(default='CODE_GROUNDED', validation_alias='questionType')
 
 
 class GenerateQuestionsResponse(BaseModel):
     session_id: int
     questions: List[GeneratedQuestion]
     status: str                # "success" or "error"
+    error: Optional[str] = None
+
+
+class GenerateFollowUpRequest(BaseModel):
+    original_question: str
+    file_reference: str
+    code_context: str
+    developer_answer: str
+
+
+class GenerateFollowUpResponse(BaseModel):
+    followup_question: str
+    targets_identifier: str
+    status: str
     error: Optional[str] = None

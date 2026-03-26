@@ -78,6 +78,19 @@ public class RecruiterController {
                 c.put("technicalScore", safeInt(b.getTechnicalScore() != null ? b.getTechnicalScore() : b.getOverallScore()));
                 c.put("integrityAdjustedScore", safeInt(b.getIntegrityAdjustedScore() != null ? b.getIntegrityAdjustedScore() : b.getOverallScore()));
                 c.put("integrityPenaltyTotal", safeInt(b.getIntegrityPenaltyTotal()));
+                BadgeResponse candidateDetail = badgeService.getBadgeByToken(b.getVerificationToken());
+                Map<String, Integer> scoreByType = candidateDetail.getScoreByQuestionType() != null
+                    ? candidateDetail.getScoreByQuestionType()
+                    : Map.of();
+                c.put("scoreByQuestionType", scoreByType);
+                int codeScore = scoreByType.getOrDefault("CODE_GROUNDED", 0);
+                int conceptScore = scoreByType.getOrDefault("CONCEPTUAL", 0);
+                c.put("conceptGapFlag", codeScore - conceptScore >= 15);
+                c.put("weightedScoringEnabled", Boolean.TRUE.equals(candidateDetail.getWeightedScoringEnabled()));
+                c.put("codeWeightPercent", safeInt(candidateDetail.getCodeWeightPercent()));
+                c.put("conceptualWeightPercent", safeInt(candidateDetail.getConceptualWeightPercent()));
+                c.put("followUpRequiredCount", safeInt(candidateDetail.getFollowUpRequiredCount()));
+                c.put("followUpAnsweredCount", safeInt(candidateDetail.getFollowUpAnsweredCount()));
                 c.put("backendScore", safeInt(b.getBackendScore()));
                 c.put("apiDesignScore", safeInt(b.getApiDesignScore()));
                 c.put("errorHandlingScore", safeInt(b.getErrorHandlingScore()));

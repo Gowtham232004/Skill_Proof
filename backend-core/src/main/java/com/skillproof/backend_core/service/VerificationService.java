@@ -46,6 +46,18 @@ public class VerificationService {
     @Value("${testing.bypass-verification-limit:false}")
     private boolean bypassVerificationLimit;
 
+    @Value("${testing.skip-repo-cooldown:false}")
+    private boolean skipRepoCooldown;
+
+    @Value("${phase2.mixed-questions-enabled:false}")
+    private boolean mixedQuestionsEnabled;
+
+    @Value("${phase2.total-questions:5}")
+    private int phase2TotalQuestions;
+
+    @Value("${phase2.conceptual-questions:0}")
+    private int phase2ConceptualQuestions;
+
     // Free plan limit
     private static final int FREE_MONTHLY_LIMIT = 3;
     private static final long REPO_COOLDOWN_HOURS = 24;
@@ -83,8 +95,8 @@ public class VerificationService {
             log.info("⚠️  TEST MODE: Bypassing verification limit for user {}", user.getGithubUsername());
         }
 
-        // Cooldown: one verification attempt per repo every 24h to reduce farming.
-        if (!bypassVerificationLimit) {
+        boolean cooldownBypassed = skipRepoCooldown || bypassVerificationLimit;
+        if (!cooldownBypassed) {
             sessionRepository
                 .findTopByUserAndRepoOwnerIgnoreCaseAndRepoNameIgnoreCaseAndStatusOrderByStartedAtDesc(
                     user,
@@ -125,6 +137,14 @@ public class VerificationService {
                         );
                     }
                 });
+        } else {
+            log.info(
+                "⚠️  TEST MODE: Bypassing repository cooldown for {}/{} (skipRepoCooldown={}, bypassVerificationLimit={})",
+                req.getRepoOwner(),
+                req.getRepoName(),
+                skipRepoCooldown,
+                bypassVerificationLimit
+            );
         }
 
         log.info("Starting verification for user {} on repo {}/{}",
@@ -180,18 +200,21 @@ public class VerificationService {
             session.getId(), codeSummary.length());
 
         // 9. Call AI service to generate questions
+        int totalQuestions = mixedQuestionsEnabled
+            ? Math.max(5, Math.min(phase2TotalQuestions, 7))
+            : 5;
+        int conceptualQuestions = mixedQuestionsEnabled
+            ? Math.max(0, Math.min(phase2ConceptualQuestions, totalQuestions - 1))
+            : 0;
+
         List<Question> questions = aiGatewayService.generateQuestionsViaAI(
             session, 
             codeSummary, 
             primaryLanguage, 
             frameworks, 
-            fileContents);
-
-        // If AI service fails, fall back to placeholder questions
-        if (questions == null) {
-            log.warn("AI service failed, using fallback placeholder questions");
-            questions = createPlaceholderQuestions(session, fileContents);
-        }
+            fileContents,
+            totalQuestions,
+            conceptualQuestions);
 
         questionRepository.saveAll(questions);
 
@@ -209,44 +232,16 @@ public class VerificationService {
             .build();
     }
 
-    // Temporary placeholder until AI service is ready (Day 3)
-    private List<Question> createPlaceholderQuestions(VerificationSession session,
-                                                        Map<String, String> fileContents) {
-        List<String> fileNames = new ArrayList<>(fileContents.keySet());
-        List<Question> questions = new ArrayList<>();
-
-        String[] templates = {
-            "Explain the overall architecture of this project and the main responsibilities of each component.",
-            "What design patterns have you used in this project and why?",
-            "How does authentication and authorization work in this application?",
-            "What would happen if the database connection fails? How does your code handle this?",
-            "What are the main limitations of your current implementation and how would you improve it?"
-        };
-
-        Question.Difficulty[] difficulties = {
-            Question.Difficulty.EASY, Question.Difficulty.EASY,
-            Question.Difficulty.MEDIUM, Question.Difficulty.HARD, Question.Difficulty.HARD
-        };
-
-        for (int i = 0; i < 5; i++) {
-            String fileRef = fileNames.size() > i ? fileNames.get(i) : "project";
-            questions.add(Question.builder()
-                .session(session)
-                .questionNumber(i + 1)
-                .difficulty(difficulties[i])
-                .fileReference(fileRef)
-                .questionText(templates[i])
-                .codeContext(fileContents.getOrDefault(fileRef, ""))
-                .build());
-        }
-        return questions;
-    }
-
     private QuestionDto toQuestionDto(Question q) {
         return QuestionDto.builder()
             .id(q.getId())
             .questionNumber(q.getQuestionNumber())
             .difficulty(q.getDifficulty().name())
+            .questionType(
+                q.getQuestionType() != null
+                    ? q.getQuestionType().name()
+                    : Question.QuestionType.CODE_GROUNDED.name()
+            )
             .fileReference(q.getFileReference())
             .questionText(q.getQuestionText())
             .codeContextSnippet(buildCodeContextSnippet(q.getCodeContext()))

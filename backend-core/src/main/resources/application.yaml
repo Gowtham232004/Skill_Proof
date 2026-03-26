@@ -45,9 +45,18 @@ ai-service:
   url: http://localhost:8000
   secret: ${AI_SERVICE_SECRET}
 
+phase2:
+  mixed-questions-enabled: false
+  total-questions: 7
+  conceptual-questions: 3
+  weighted-scoring-enabled: false
+  code-weight-percent: 60
+  conceptual-weight-percent: 40
+
 # Test/Development mode — bypass limits
 testing:
-  bypass-verification-limit: true
+  bypass-verification-limit: false
+  skip-repo-cooldown: false
 
 # CORS — allow Next.js frontend
 cors:

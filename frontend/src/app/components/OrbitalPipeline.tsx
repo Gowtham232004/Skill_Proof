@@ -110,6 +110,7 @@ function EvalViz({ color }: { color: string }) {
   const qs: [string, number, string][] = [['Q1',82,'#D4FF00'],['Q2',76,'#60A5FA'],['Q3',90,'#34D399'],['Q4',71,'#F59E0B'],['Q5',84,'#A78BFA']];
   return (
     <svg viewBox="0 0 220 80" style={{ width:'100%', height:80, opacity:.75 }}>
+      <text x="214" y="10" textAnchor="end" fill={color} fontSize="8" fontFamily="JetBrains Mono,monospace">rubric</text>
       {qs.map(([q,s,c],i)=>{
         const barWidth = s * 1.8;
         return (
