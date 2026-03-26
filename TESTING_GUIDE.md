@@ -313,3 +313,76 @@ Once you've verified the full pipeline works:
 3. ✅ Full pipeline test returns 5 questions
 
 **You're ready for production testing!**
+
+---
+
+## Phase 2 Validation (Important Release Gates)
+
+Use this section to validate mixed question mode, score-by-type behavior, and concept-gap signaling before rollout.
+
+### Prerequisite Flags (Spring Boot)
+
+Set these environment variables before starting backend-core:
+
+```powershell
+$env:PHASE2_MIXED_QUESTIONS_ENABLED="true"
+$env:PHASE2_TOTAL_QUESTIONS="7"
+$env:PHASE2_CONCEPTUAL_QUESTIONS="3"
+$env:PHASE2_WEIGHTED_SCORING_ENABLED="true"
+$env:PHASE2_CODE_WEIGHT_PERCENT="60"
+$env:PHASE2_CONCEPTUAL_WEIGHT_PERCENT="40"
+```
+
+### Gate 1: Mixed Generation Ratio (4 code-grounded + 3 conceptual)
+
+Run verification start and inspect returned question types:
+
+```powershell
+$token = "<JWT_TOKEN>"
+$body = @{ repoOwner = "Gowtham232004"; repoName = "Automl" } | ConvertTo-Json
+
+$res = Invoke-WebRequest -Uri "http://localhost:8080/api/verify/start" `
+  -Method Post `
+  -Headers @{"Authorization" = "Bearer $token"} `
+  -ContentType "application/json" `
+  -Body $body `
+  -UseBasicParsing
+
+$data = $res.Content | ConvertFrom-Json
+$code = ($data.questions | Where-Object { $_.questionType -eq "CODE_GROUNDED" }).Count
+$concept = ($data.questions | Where-Object { $_.questionType -eq "CONCEPTUAL" }).Count
+
+Write-Host "Total questions: $($data.questions.Count)"
+Write-Host "Code-grounded: $code"
+Write-Host "Conceptual: $concept"
+```
+
+Expected:
+- Total questions = 7
+- CODE_GROUNDED = 4
+- CONCEPTUAL = 3
+
+### Gate 2: Conceptual Weakness Separation
+
+Goal: prove weak generic conceptual answers are penalized separately from code-grounded answers.
+
+1. Start a session and keep all 4 code-grounded answers reasonably specific.
+2. For all 3 conceptual questions, submit generic responses like:
+  - "It depends on architecture and scalability."
+  - "Use best practices and monitor performance."
+3. Submit via `/api/verify/submit`.
+4. Open candidate result or badge response and check:
+  - `scoreByQuestionType.CODE_GROUNDED` should be materially higher than `scoreByQuestionType.CONCEPTUAL`.
+  - If difference is >= 15, recruiter views should show concept-gap signal.
+
+### Gate 3: Weighted Policy Transparency
+
+Check all three surfaces show active scoring policy:
+
+1. Verify result page (`/verify`) shows mode and weights.
+2. Badge page (`/badge/{token}`) shows mode and weights.
+3. Recruiter dashboard/list/detail (`/recruiter`) shows mode and weights.
+
+Expected policy text:
+- Mode: `weighted`
+- Weights: `60% code · 40% concept`

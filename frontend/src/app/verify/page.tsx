@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { api, startVerification, submitAnswers } from '@/lib/api'
+import { api, startVerification, submitAnswers, submitFollowUpAnswers } from '@/lib/api'
 import { formatCooldownFromMinutes, parseApiError } from '@/lib/apiError'
 import ErrorBanner from '@/app/components/ErrorBanner'
 import SuccessBanner from '@/app/components/SuccessBanner'
@@ -21,6 +21,7 @@ interface Question {
   id: number
   questionNumber: number
   difficulty: 'EASY' | 'MEDIUM' | 'HARD'
+  questionType?: 'CODE_GROUNDED' | 'CONCEPTUAL' | 'PATTERN' | 'EDGE_CASE'
   fileReference: string
   questionText: string
   codeContextSnippet?: string
@@ -37,6 +38,10 @@ interface VerifyResult {
     speedPenalty?: number
     tabSwitchPenalty?: number
   }
+  scoreByQuestionType?: Record<string, number>
+  weightedScoringEnabled?: boolean
+  codeWeightPercent?: number
+  conceptualWeightPercent?: number
   backendScore: number
   apiDesignScore: number
   errorHandlingScore: number
@@ -50,9 +55,20 @@ interface VerifyResult {
   badgeToken: string
   badgeUrl: string
   topGaps: string[]
+  followUpRequired?: number[]
+  followUpRequiredCount?: number
+  followUpAnsweredCount?: number
+  followUpQuestions?: {
+    questionNumber: number
+    fileReference: string
+    originalQuestion: string
+    followUpQuestion: string
+    targetsIdentifier: string
+  }[]
   questionResults: {
     questionNumber: number
     difficulty: string
+    questionType?: 'CODE_GROUNDED' | 'CONCEPTUAL' | 'PATTERN' | 'EDGE_CASE'
     fileReference: string
     questionText: string
     accuracyScore: number
@@ -63,9 +79,21 @@ interface VerifyResult {
   }[]
 }
 
+interface CurrentUser {
+  githubUsername: string
+  avatarUrl: string
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const DIFF_COLOR: Record<string, string> = {
   EASY: '#34D399', MEDIUM: '#F59E0B', HARD: '#F472B6'
+}
+
+const TYPE_LABEL: Record<NonNullable<Question['questionType']>, string> = {
+  CODE_GROUNDED: 'CODE',
+  CONCEPTUAL: 'CONCEPT',
+  PATTERN: 'PATTERN',
+  EDGE_CASE: 'EDGE',
 }
 
 function ScoreRing({ score, color, size = 120 }: { score: number; color: string; size?: number }) {
@@ -363,7 +391,7 @@ function StepAnswerQuestions({
         avgAnswerSeconds,
       })
       onSubmit(res.data)
-    } catch (e: any) {
+    } catch (e: unknown) {
       const parsed = parseApiError(e, 'Could not submit answers. Please try again.')
       if (parsed.code === 'ANSWER_TOO_SHORT') {
         const questionNumber = Number(parsed.details?.questionNumber)
@@ -434,9 +462,16 @@ function StepAnswerQuestions({
             <span style={{ padding: '4px 10px', borderRadius: 6, background: `${DIFF_COLOR[q.difficulty]}18`, border: `1px solid ${DIFF_COLOR[q.difficulty]}40`, fontSize: 11, fontWeight: 700, color: DIFF_COLOR[q.difficulty], fontFamily: 'JetBrains Mono, monospace' }}>
               {q.difficulty}
             </span>
-            <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'JetBrains Mono, monospace' }}>
-              📄 {q.fileReference}
-            </span>
+            {q.questionType && (
+              <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(212,255,0,0.09)', border: '1px solid rgba(212,255,0,0.25)', fontSize: 11, color: '#D4FF00', fontFamily: 'JetBrains Mono, monospace' }}>
+                {TYPE_LABEL[q.questionType]}
+              </span>
+            )}
+            {q.fileReference && (
+              <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'JetBrains Mono, monospace' }}>
+                📄 {q.fileReference}
+              </span>
+            )}
           </div>
 
           <p style={{ fontSize: 17, lineHeight: 1.7, color: '#fff', marginBottom: 20, fontWeight: 500 }}>
@@ -592,6 +627,124 @@ function SkillGapSection({ gaps }: { gaps: string[] }) {
   )
 }
 
+function StepFollowUpQuestions({
+  sessionId,
+  followUpQuestions,
+  onSubmit,
+}: {
+  sessionId: number
+  followUpQuestions: FollowUpQuestion[]
+  onSubmit: (result: VerifyResult) => void
+}) {
+  const [answers, setAnswers] = useState<Record<number, string>>({})
+  const [skipped, setSkipped] = useState<Record<number, boolean>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+
+  const allReady = followUpQuestions.every((q) =>
+    skipped[q.questionNumber] || (answers[q.questionNumber] || '').trim().length >= 20
+  )
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    setSubmitError('')
+    try {
+      const payload = followUpQuestions.map((q) => ({
+        questionNumber: q.questionNumber,
+        followUpQuestion: q.followUpQuestion,
+        answerText: skipped[q.questionNumber] ? '' : (answers[q.questionNumber] || ''),
+        skipped: !!skipped[q.questionNumber],
+      }))
+
+      const res = await submitFollowUpAnswers(sessionId, payload)
+      onSubmit(res.data)
+    } catch (e: unknown) {
+      const parsed = parseApiError(e, 'Could not submit follow-up answers. Please try again.')
+      setSubmitError(parsed.message)
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18, padding: '14px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12 }}>
+        <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: '#F59E0B', marginBottom: 8, letterSpacing: '0.08em' }}>
+          ADDITIONAL VERIFICATION
+        </div>
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+          These targeted follow-up questions validate code-specific reasoning for low-specificity answers.
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 12 }}>
+        {followUpQuestions.map((q) => {
+          const isSkipped = !!skipped[q.questionNumber]
+          const answer = answers[q.questionNumber] || ''
+          const answerLen = answer.trim().length
+          return (
+            <div key={q.questionNumber} style={{ padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(245,158,11,0.16)', border: '1px solid rgba(245,158,11,0.45)', fontSize: 11, color: '#F59E0B', fontFamily: 'JetBrains Mono, monospace' }}>
+                  Follow-up Q{q.questionNumber}
+                </span>
+                {q.targetsIdentifier && (
+                  <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(96,165,250,0.14)', border: '1px solid rgba(96,165,250,0.35)', fontSize: 11, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace' }}>
+                    target: {q.targetsIdentifier}
+                  </span>
+                )}
+                {q.fileReference && (
+                  <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', fontSize: 11, color: 'rgba(255,255,255,0.45)', fontFamily: 'JetBrains Mono, monospace' }}>
+                    {q.fileReference}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 8, fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
+                <b style={{ color: 'rgba(255,255,255,0.65)' }}>Original:</b> {q.originalQuestion}
+              </div>
+              <div style={{ marginBottom: 10, fontSize: 14, lineHeight: 1.6, color: '#fff' }}>
+                {q.followUpQuestion}
+              </div>
+
+              <textarea
+                value={answer}
+                onChange={(e) => setAnswers((prev) => ({ ...prev, [q.questionNumber]: e.target.value }))}
+                placeholder="Answer with concrete references to identifiers/behaviors in your code..."
+                rows={4}
+                disabled={isSkipped}
+                style={{ width: '100%', padding: '12px 14px', background: isSkipped ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isSkipped ? 'rgba(245,158,11,0.35)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 10, color: '#fff', fontSize: 14, fontFamily: 'Outfit, sans-serif', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: isSkipped || answerLen >= 20 ? '#34D399' : 'rgba(255,255,255,0.25)' }}>
+                  {isSkipped ? 'Skipped' : `${answerLen} chars · minimum 20`}
+                </span>
+                <button
+                  onClick={() => setSkipped((prev) => ({ ...prev, [q.questionNumber]: !prev[q.questionNumber] }))}
+                  style={{ fontSize: 12, padding: '5px 10px', background: isSkipped ? 'rgba(245,158,11,0.2)' : 'transparent', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 8, color: '#F59E0B', fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {isSkipped ? 'Unskip' : 'Skip'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {submitError && <ErrorBanner message={submitError} code="VERIFY_FOLLOWUP_SUBMIT_ERROR" />}
+
+      <div style={{ marginTop: 16 }}>
+        <motion.button
+          whileHover={allReady ? { scale: 1.02 } : {}}
+          whileTap={allReady ? { scale: 0.98 } : {}}
+          onClick={allReady ? handleSubmit : undefined}
+          disabled={!allReady || submitting}
+          style={{ width: '100%', padding: '13px 20px', background: allReady ? '#D4FF00' : 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 12, color: allReady ? '#000' : 'rgba(255,255,255,0.3)', fontSize: 14, fontWeight: 800, cursor: allReady ? 'pointer' : 'not-allowed', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {submitting ? 'Submitting Follow-ups...' : 'Submit Follow-up Answers →'}
+        </motion.button>
+      </div>
+    </div>
+  )
+}
+
 // Step 4: Results
 function StepResults({ result, onNewVerification }: { result: VerifyResult; onNewVerification: () => void }) {
   const router = useRouter()
@@ -603,10 +756,14 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
     { key: 'codeQualityScore', label: 'Code Quality', color: '#34D399' },
     { key: 'documentationScore', label: 'Documentation', color: '#F472B6' },
   ] as const
+  const getSkillScore = (key: (typeof SKILL_LABELS)[number]['key']) => result[key]
 
   const adjustedScore = result.integrityAdjustedScore ?? result.overallScore
   const technicalScore = result.technicalScore ?? result.overallScore
   const scoreColor = adjustedScore >= 80 ? '#34D399' : adjustedScore >= 60 ? '#F59E0B' : '#F472B6'
+  const codeScore = result.scoreByQuestionType?.CODE_GROUNDED ?? 0
+  const conceptScore = result.scoreByQuestionType?.CONCEPTUAL ?? 0
+  const conceptGap = codeScore - conceptScore
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
@@ -641,6 +798,57 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
         </div>
       )}
 
+      {!!result.scoreByQuestionType && (
+        <div style={{ marginBottom: 22, padding: '14px 16px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 12 }}>
+          <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: '#60A5FA', marginBottom: 8, letterSpacing: '0.08em' }}>
+            CODE VS CONCEPT
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ padding: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 8, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>
+              Code-grounded: <b>{codeScore}</b>
+            </div>
+            <div style={{ padding: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 8, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>
+              Conceptual: <b>{conceptScore}</b>
+            </div>
+          </div>
+          {conceptGap >= 15 && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(245,158,11,0.9)' }}>
+              Your implementation understanding is stronger than conceptual reasoning. Focus next on trade-offs and why-pattern questions.
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.52)', fontFamily: 'JetBrains Mono, monospace' }}>
+            Scoring mode: {result.weightedScoringEnabled ? 'weighted' : 'equal'}
+            {' '}({result.codeWeightPercent ?? 60}% code · {result.conceptualWeightPercent ?? 40}% concept)
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(result.followUpRequired) && result.followUpRequired.length > 0 && (
+        <div style={{ marginBottom: 22, padding: '14px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12 }}>
+          <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: '#F59E0B', marginBottom: 8, letterSpacing: '0.08em' }}>
+            ADDITIONAL VERIFICATION REQUIRED
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+            Low-specificity code-grounded answers detected for question(s): {result.followUpRequired.join(', ')}.
+            Follow-up completion: {result.followUpAnsweredCount ?? 0} / {result.followUpRequiredCount ?? result.followUpRequired.length} answered.
+          </div>
+          {Array.isArray(result.followUpQuestions) && result.followUpQuestions.length > 0 && (
+            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              {result.followUpQuestions.map((followUp) => (
+                <div key={followUp.questionNumber} style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: 11, color: 'rgba(245,158,11,0.9)', fontFamily: 'JetBrains Mono, monospace', marginBottom: 4 }}>
+                    Q{followUp.questionNumber} · target: {followUp.targetsIdentifier || 'identifier'}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.5 }}>
+                    {followUp.followUpQuestion}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Skill bars */}
       <div style={{ marginBottom: 28 }}>
         {SKILL_LABELS.map((skill, i) => (
@@ -648,13 +856,13 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
               <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>{skill.label}</span>
               <span style={{ fontSize: 13, fontWeight: 800, color: skill.color, fontFamily: 'JetBrains Mono, monospace' }}>
-                {(result as any)[skill.key]}
+                {getSkillScore(skill.key)}
               </span>
             </div>
             <div style={{ height: 5, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${(result as any)[skill.key]}%` }}
+                animate={{ width: `${getSkillScore(skill.key)}%` }}
                 transition={{ duration: 1.2, delay: i * 0.1, ease: 'easeOut' }}
                 style={{ height: '100%', background: skill.color, borderRadius: 3, boxShadow: `0 0 6px ${skill.color}50` }}
               />
@@ -725,7 +933,7 @@ function StepResults({ result, onNewVerification }: { result: VerifyResult; onNe
 }
 
 // ── MAIN WIZARD ───────────────────────────────────────────────────────────────
-const WIZARD_STEPS = ['Select Repo', 'Analyzing', 'Answer Questions', 'Your Badge']
+const WIZARD_STEPS = ['Select Repo', 'Analyzing', 'Answer Questions', 'Follow-up', 'Your Badge']
 
 export default function VerifyPage() {
   const router = useRouter()
@@ -733,8 +941,9 @@ export default function VerifyPage() {
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
+  const [followUpQuestions, setFollowUpQuestions] = useState<FollowUpQuestion[]>([])
   const [result, setResult] = useState<VerifyResult | null>(null)
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<CurrentUser | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('sp_token')
@@ -743,7 +952,7 @@ export default function VerifyPage() {
       router.push('/')
       return
     }
-    if (userStr) setUser(JSON.parse(userStr))
+    if (userStr) setUser(JSON.parse(userStr) as CurrentUser)
   }, [])
 
   const handleRepoSelect = (repo: Repo) => {
@@ -758,8 +967,20 @@ export default function VerifyPage() {
   }
 
   const handleAnswersSubmitted = (res: VerifyResult) => {
+    const followUps = Array.isArray(res.followUpQuestions) ? res.followUpQuestions : []
+    if (followUps.length > 0 && sessionId) {
+      setFollowUpQuestions(followUps)
+      setStep(3)
+      return
+    }
+
     setResult(res)
-    setStep(3)
+    setStep(4)
+  }
+
+  const handleFollowUpSubmitted = (res: VerifyResult) => {
+    setResult(res)
+    setStep(4)
   }
 
   const handleNewVerification = () => {
@@ -767,6 +988,7 @@ export default function VerifyPage() {
     setSelectedRepo(null)
     setSessionId(null)
     setQuestions([])
+    setFollowUpQuestions([])
     setResult(null)
   }
 
@@ -774,7 +996,8 @@ export default function VerifyPage() {
     <StepSelectRepo key="1" onSelect={handleRepoSelect} />,
     selectedRepo ? <StepAnalyzing key="2" repo={selectedRepo} onDone={handleAnalysisDone} /> : null,
     questions.length > 0 && sessionId ? <StepAnswerQuestions key="3" questions={questions} sessionId={sessionId} onSubmit={handleAnswersSubmitted} /> : null,
-    result ? <StepResults key="4" result={result} onNewVerification={handleNewVerification} /> : null,
+    sessionId && followUpQuestions.length > 0 ? <StepFollowUpQuestions key="4" sessionId={sessionId} followUpQuestions={followUpQuestions} onSubmit={handleFollowUpSubmitted} /> : null,
+    result ? <StepResults key="5" result={result} onNewVerification={handleNewVerification} /> : null,
   ]
 
   return (
@@ -837,8 +1060,9 @@ export default function VerifyPage() {
             >
               {step === 0 && 'Choose a repository to verify'}
               {step === 1 && <>Analyzing <span style={{ color: '#D4FF00' }}>{selectedRepo?.name}</span>...</>}
-              {step === 2 && 'Answer 5 questions about your code'}
-              {step === 3 && <>Your badge is <span style={{ color: '#D4FF00' }}>ready.</span></>}
+              {step === 2 && `Answer ${questions.length || 5} questions about your code`}
+              {step === 3 && 'Answer targeted follow-up questions'}
+              {step === 4 && <>Your badge is <span style={{ color: '#D4FF00' }}>ready.</span></>}
             </motion.h1>
           </AnimatePresence>
         </div>
@@ -859,4 +1083,12 @@ export default function VerifyPage() {
       </div>
     </div>
   )
+}
+
+interface FollowUpQuestion {
+  questionNumber: number
+  fileReference: string
+  originalQuestion: string
+  followUpQuestion: string
+  targetsIdentifier: string
 }

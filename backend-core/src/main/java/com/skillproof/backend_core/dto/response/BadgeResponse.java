@@ -36,6 +36,10 @@ public class BadgeResponse {
     private Integer integrityAdjustedScore;
     private Integer integrityPenaltyTotal;
     private Map<String, Integer> integrityPenaltyBreakdown;
+    private Map<String, Integer> scoreByQuestionType;
+    private Boolean weightedScoringEnabled;
+    private Integer codeWeightPercent;
+    private Integer conceptualWeightPercent;
     private Integer backendScore;
     private Integer apiDesignScore;
     private Integer errorHandlingScore;
@@ -47,6 +51,9 @@ public class BadgeResponse {
     private Integer tabSwitches;
     private Integer pasteCount;
     private Integer avgAnswerSeconds;
+    private Integer followUpRequiredCount;
+    private Integer followUpAnsweredCount;
+    private List<FollowUpResultDto> followUpResults;
     private Integer answeredCount;
     private Integer totalQuestions;
     private Integer skippedCount;
@@ -67,6 +74,7 @@ public class BadgeResponse {
     public static class QuestionResultDto {
         private Integer questionNumber;
         private String difficulty;
+        private String questionType;
         private String fileReference;
         private String questionText;
         private String questionCodeSnippet;
@@ -80,5 +88,15 @@ public class BadgeResponse {
         private Double compositeScore;
         private String aiFeedback;
         private List<String> keyPoints;
+    }
+
+    @Data
+    @Builder
+    public static class FollowUpResultDto {
+        private Integer questionNumber;
+        private String followUpQuestion;
+        private Boolean skipped;
+        private Integer answerLength;
+        private String answerExcerpt;
     }
 }

@@ -96,6 +96,18 @@ public class Badge {
     @Column(name = "avg_answer_seconds")
     private Integer avgAnswerSeconds;
 
+    @Column(name = "follow_up_required_count")
+    private Integer followUpRequiredCount;
+
+    @Column(name = "follow_up_answered_count")
+    private Integer followUpAnsweredCount;
+
+    @Column(name = "follow_up_prompts_json", columnDefinition = "TEXT")
+    private String followUpPromptsJson;
+
+    @Column(name = "follow_up_results_json", columnDefinition = "TEXT")
+    private String followUpResultsJson;
+
     // Can be revoked by the developer
     @Column(name = "is_active")
     @Builder.Default

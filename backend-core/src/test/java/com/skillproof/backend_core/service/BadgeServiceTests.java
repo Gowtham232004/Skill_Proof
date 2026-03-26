@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -106,6 +107,7 @@ class BadgeServiceTests {
             .session(session)
             .questionNumber(1)
             .difficulty(Question.Difficulty.EASY)
+            .questionType(Question.QuestionType.CODE_GROUNDED)
             .fileReference("AuthService.java")
             .questionText("Explain auth flow")
             .build();
@@ -138,6 +140,102 @@ class BadgeServiceTests {
         assertEquals(1, response.getQuestionResults().size());
         assertEquals(2, response.getFrameworksDetected().size());
         assertEquals("Spring Boot", response.getFrameworksDetected().get(0));
+        assertEquals(1, response.getScoreByQuestionType().size());
+        assertEquals(70, response.getScoreByQuestionType().get("CODE_GROUNDED"));
+    }
+
+    @Test
+    void getBadgeByTokenComputesScoreByQuestionTypeForMixedQuestions() {
+        BadgeService badgeService = new BadgeService(
+            badgeRepository,
+            sessionRepository,
+            questionRepository,
+            answerRepository,
+            hmacUtil,
+            new ObjectMapper()
+        );
+
+        User user = User.builder()
+            .id(19L)
+            .githubUsername("mixed-dev")
+            .build();
+
+        VerificationSession session = VerificationSession.builder()
+            .id(101L)
+            .user(user)
+            .repoOwner("octo")
+            .repoName("mixed-repo")
+            .frameworksDetected("[]")
+            .status(VerificationSession.Status.COMPLETED)
+            .build();
+
+        Badge badge = Badge.builder()
+            .session(session)
+            .user(user)
+            .verificationToken("mixed_token")
+            .overallScore(80)
+            .isActive(true)
+            .build();
+
+        when(badgeRepository.findByVerificationToken("mixed_token")).thenReturn(Optional.of(badge));
+        when(sessionRepository.countByUserAndRepoOwnerAndRepoNameAndStatus(
+            user,
+            "octo",
+            "mixed-repo",
+            VerificationSession.Status.COMPLETED
+        )).thenReturn(1L);
+        when(questionRepository.countBySessionId(101L)).thenReturn(2L);
+
+        Question codeQuestion = Question.builder()
+            .id(501L)
+            .session(session)
+            .questionNumber(1)
+            .difficulty(Question.Difficulty.MEDIUM)
+            .questionType(Question.QuestionType.CODE_GROUNDED)
+            .fileReference("Service.java")
+            .questionText("Code grounded")
+            .build();
+
+        Question conceptualQuestion = Question.builder()
+            .id(502L)
+            .session(session)
+            .questionNumber(2)
+            .difficulty(Question.Difficulty.HARD)
+            .questionType(Question.QuestionType.CONCEPTUAL)
+            .fileReference("")
+            .questionText("Conceptual")
+            .build();
+
+        Answer codeAnswer = Answer.builder()
+            .id(6001L)
+            .question(codeQuestion)
+            .answerText("code")
+            .accuracyScore(8)
+            .depthScore(8)
+            .specificityScore(8)
+            .compositeScore(8.0)
+            .aiFeedback("good")
+            .build();
+
+        Answer conceptualAnswer = Answer.builder()
+            .id(6002L)
+            .question(conceptualQuestion)
+            .answerText("concept")
+            .accuracyScore(5)
+            .depthScore(5)
+            .specificityScore(5)
+            .compositeScore(5.0)
+            .aiFeedback("ok")
+            .build();
+
+        when(answerRepository.findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(101L))
+            .thenReturn(List.of(codeAnswer, conceptualAnswer));
+
+        BadgeResponse response = badgeService.getBadgeByToken("mixed_token");
+
+        assertTrue(response.isValid());
+        assertEquals(80, response.getScoreByQuestionType().get("CODE_GROUNDED"));
+        assertEquals(50, response.getScoreByQuestionType().get("CONCEPTUAL"));
     }
 
     @Test
@@ -157,6 +255,58 @@ class BadgeServiceTests {
 
         assertFalse(response.isValid());
         assertEquals("missing", response.getVerificationToken());
+    }
+
+    @Test
+    void getBadgeByTokenParsesFollowUpResults() {
+        BadgeService badgeService = new BadgeService(
+            badgeRepository,
+            sessionRepository,
+            questionRepository,
+            answerRepository,
+            hmacUtil,
+            new ObjectMapper()
+        );
+
+        User user = User.builder().id(23L).githubUsername("followup-dev").build();
+        VerificationSession session = VerificationSession.builder()
+            .id(230L)
+            .user(user)
+            .repoOwner("owner")
+            .repoName("repo")
+            .frameworksDetected("[]")
+            .status(VerificationSession.Status.COMPLETED)
+            .build();
+
+        Badge badge = Badge.builder()
+            .session(session)
+            .user(user)
+            .verificationToken("followup_token")
+            .isActive(true)
+            .followUpRequiredCount(2)
+            .followUpAnsweredCount(1)
+            .followUpResultsJson("[{\"questionNumber\":1,\"followUpQuestion\":\"Explain cache invalidation\",\"skipped\":false,\"answerLength\":124,\"answerExcerpt\":\"I invalidate on write events\"}]")
+            .build();
+
+        when(badgeRepository.findByVerificationToken("followup_token")).thenReturn(Optional.of(badge));
+        when(sessionRepository.countByUserAndRepoOwnerAndRepoNameAndStatus(
+            user,
+            "owner",
+            "repo",
+            VerificationSession.Status.COMPLETED
+        )).thenReturn(1L);
+        when(questionRepository.countBySessionId(230L)).thenReturn(0L);
+        when(answerRepository.findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(230L))
+            .thenReturn(List.of());
+
+        BadgeResponse response = badgeService.getBadgeByToken("followup_token");
+
+        assertTrue(response.isValid());
+        assertEquals(2, response.getFollowUpRequiredCount());
+        assertEquals(1, response.getFollowUpAnsweredCount());
+        assertEquals(1, response.getFollowUpResults().size());
+        assertEquals(1, response.getFollowUpResults().get(0).getQuestionNumber());
+        assertEquals(false, response.getFollowUpResults().get(0).getSkipped());
     }
 
     @Test

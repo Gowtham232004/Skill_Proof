@@ -29,6 +29,10 @@ interface BadgeData {
     speedPenalty?: number
     tabSwitchPenalty?: number
   }
+  scoreByQuestionType?: Record<string, number>
+  weightedScoringEnabled?: boolean
+  codeWeightPercent?: number
+  conceptualWeightPercent?: number
   backendScore: number
   apiDesignScore: number
   errorHandlingScore: number
@@ -42,6 +46,8 @@ interface BadgeData {
   answeredCount?: number
   totalQuestions?: number
   skippedCount?: number
+  followUpRequiredCount?: number
+  followUpAnsweredCount?: number
   evaluationComplete?: boolean
   confidenceExplanation?: string
   questionResults?: {
@@ -70,6 +76,8 @@ const SKILLS = [
   { key: 'codeQualityScore', label: 'Code Quality', color: '#34D399' },
   { key: 'documentationScore', label: 'Documentation', color: '#F472B6' },
 ] as const
+
+const getSkillScore = (badge: BadgeData, key: (typeof SKILLS)[number]['key']) => badge[key]
 
 export default function BadgePage() {
   const params = useParams()
@@ -106,6 +114,9 @@ export default function BadgePage() {
 
   const technicalScore = badge?.technicalScore ?? badge?.overallScore ?? 0
   const adjustedScore = badge?.integrityAdjustedScore ?? badge?.overallScore ?? 0
+  const codeScore = badge?.scoreByQuestionType?.CODE_GROUNDED ?? 0
+  const conceptScore = badge?.scoreByQuestionType?.CONCEPTUAL ?? 0
+  const conceptGap = codeScore - conceptScore
   const confidenceColor = badge?.confidenceTier === 'High'
     ? '#34D399'
     : badge?.confidenceTier === 'Medium'
@@ -306,7 +317,7 @@ export default function BadgePage() {
                 {SKILLS.map((skill) => (
                   <div key={skill.key} style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.03)', border: `1px solid ${skill.color}20`, borderRadius: 12, textAlign: 'center' }}>
                     <div style={{ fontSize: 18, fontWeight: 800, color: skill.color, fontFamily: 'JetBrains Mono, monospace', marginBottom: 4 }}>
-                      {(badge as any)[skill.key]}
+                      {getSkillScore(badge, skill.key)}
                     </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>
                       {skill.label}
@@ -354,6 +365,47 @@ export default function BadgePage() {
               </div>
             </div>
 
+            {!!badge.scoreByQuestionType && (
+              <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 12 }}>
+                <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(96,165,250,0.85)', marginBottom: 8, letterSpacing: '0.08em' }}>
+                  CODE VS CONCEPT
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Code-grounded</div>
+                    <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{codeScore}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Conceptual</div>
+                    <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{conceptScore}</div>
+                  </div>
+                </div>
+                {conceptGap >= 15 && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(245,158,11,0.9)' }}>
+                    Recruiters should probe architectural trade-offs and failure-mode reasoning in follow-up.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {typeof badge.followUpRequiredCount === 'number' && badge.followUpRequiredCount > 0 && (
+              <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12 }}>
+                <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(245,158,11,0.9)', marginBottom: 8, letterSpacing: '0.08em' }}>
+                  FOLLOW-UP COMPLETION
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Required</div>
+                    <div style={{ fontSize: 14, color: '#F59E0B', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.followUpRequiredCount}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Answered</div>
+                    <div style={{ fontSize: 14, color: '#F59E0B', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.followUpAnsweredCount ?? 0}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(212,255,0,0.05)', border: '1px solid rgba(212,255,0,0.2)', borderRadius: 12 }}>
               <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(212,255,0,0.85)', marginBottom: 8, letterSpacing: '0.08em' }}>
                 HOW THIS SCORE WAS CALCULATED
@@ -386,6 +438,9 @@ export default function BadgePage() {
                   {badge.confidenceExplanation}
                 </p>
               )}
+              <p style={{ marginTop: 10, marginBottom: 0, color: 'rgba(255,255,255,0.52)', fontSize: 12, lineHeight: 1.5, fontFamily: 'JetBrains Mono, monospace' }}>
+                Scoring mode: {badge.weightedScoringEnabled ? 'weighted' : 'equal'} ({badge.codeWeightPercent ?? 60}% code · {badge.conceptualWeightPercent ?? 40}% concept)
+              </p>
             </div>
 
             {badge.questionResults && badge.questionResults.length > 0 && (

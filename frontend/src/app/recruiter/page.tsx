@@ -20,6 +20,13 @@ interface Candidate {
   errorHandlingScore: number
   codeQualityScore: number
   documentationScore: number
+  scoreByQuestionType?: Record<string, number>
+  conceptGapFlag?: boolean
+  weightedScoringEnabled?: boolean
+  codeWeightPercent?: number
+  conceptualWeightPercent?: number
+  followUpRequiredCount?: number
+  followUpAnsweredCount?: number
   confidenceTier?: 'High' | 'Medium' | 'Low'
   tabSwitches?: number
   pasteCount?: number
@@ -27,6 +34,10 @@ interface Candidate {
   badgeToken: string
   issuedAt: string
   primaryLanguage: string
+}
+
+interface CurrentUser {
+  githubUsername?: string
 }
 
 const DIMS = [
@@ -45,7 +56,9 @@ export default function RecruiterPage() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'score' | 'date'>('score')
   const [confidenceFilter, setConfidenceFilter] = useState<'ALL' | 'High' | 'Medium' | 'Low'>('ALL')
-  const [user, setUser] = useState<any>(null)
+  const [riskFilter, setRiskFilter] = useState<'ALL' | 'CONCEPT_GAP' | 'FOLLOWUP_INCOMPLETE' | 'HIGH_RISK'>('ALL')
+  const [prioritizeRisk, setPrioritizeRisk] = useState(false)
+  const [user, setUser] = useState<CurrentUser | null>(null)
   const [loadError, setLoadError] = useState('')
   const [fallbackInfo, setFallbackInfo] = useState('')
 
@@ -91,10 +104,31 @@ export default function RecruiterPage() {
       c.repoName.toLowerCase().includes(search.toLowerCase())
     )
     .filter(c => confidenceFilter === 'ALL' || c.confidenceTier === confidenceFilter)
-    .sort((a, b) => sortBy === 'score'
-      ? b.overallScore - a.overallScore
-      : new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()
-    )
+    .filter(c => {
+      if (riskFilter === 'ALL') return true
+      const followUpIncomplete = (c.followUpRequiredCount ?? 0) > (c.followUpAnsweredCount ?? 0)
+      const conceptGap = !!c.conceptGapFlag
+      const highRisk = followUpIncomplete || conceptGap || c.confidenceTier === 'Low'
+
+      if (riskFilter === 'CONCEPT_GAP') return conceptGap
+      if (riskFilter === 'FOLLOWUP_INCOMPLETE') return followUpIncomplete
+      if (riskFilter === 'HIGH_RISK') return highRisk
+      return true
+    })
+    .sort((a, b) => {
+      const followUpIncompleteA = (a.followUpRequiredCount ?? 0) > (a.followUpAnsweredCount ?? 0)
+      const followUpIncompleteB = (b.followUpRequiredCount ?? 0) > (b.followUpAnsweredCount ?? 0)
+      const riskScoreA = (followUpIncompleteA ? 3 : 0) + (a.conceptGapFlag ? 2 : 0) + (a.confidenceTier === 'Low' ? 1 : 0)
+      const riskScoreB = (followUpIncompleteB ? 3 : 0) + (b.conceptGapFlag ? 2 : 0) + (b.confidenceTier === 'Low' ? 1 : 0)
+
+      if (prioritizeRisk && riskScoreA !== riskScoreB) {
+        return riskScoreB - riskScoreA
+      }
+
+      return sortBy === 'score'
+        ? b.overallScore - a.overallScore
+        : new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()
+    })
 
   const avg = candidates.length > 0
     ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
@@ -103,6 +137,8 @@ export default function RecruiterPage() {
   const scoreColor = (s: number) => s >= 80 ? '#34D399' : s >= 60 ? '#F59E0B' : '#F472B6'
   const confidenceColor = (tier?: Candidate['confidenceTier']) =>
     tier === 'High' ? '#34D399' : tier === 'Medium' ? '#F59E0B' : '#EF4444'
+  const getDimScore = (candidate: Candidate, key: (typeof DIMS)[number]['key']) => candidate[key]
+  const policySource = selected ?? filtered[0]
 
   return (
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: 'Outfit, sans-serif' }}>
@@ -159,6 +195,20 @@ export default function RecruiterPage() {
           </>
         )}
 
+        {policySource && (
+          <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(96,165,250,0.28)', background: 'rgba(96,165,250,0.08)' }}>
+            <div style={{ fontSize: 10, color: 'rgba(96,165,250,0.85)', fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.09em', marginBottom: 6 }}>
+              SCORING POLICY
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)', fontFamily: 'JetBrains Mono, monospace' }}>
+              Mode: {policySource.weightedScoringEnabled ? 'weighted' : 'equal'}
+            </div>
+            <div style={{ marginTop: 2, fontSize: 12, color: 'rgba(255,255,255,0.62)', fontFamily: 'JetBrains Mono, monospace' }}>
+              Weights: {policySource.codeWeightPercent ?? 60}% code · {policySource.conceptualWeightPercent ?? 40}% concept
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 340px' : '1fr', gap: 16, alignItems: 'start' }}>
 
           {/* List */}
@@ -177,6 +227,20 @@ export default function RecruiterPage() {
                 <option value="Medium" style={{ background: '#0A0A0A' }}>Medium</option>
                 <option value="Low" style={{ background: '#0A0A0A' }}>Low</option>
               </select>
+              <select
+                value={riskFilter}
+                onChange={e => setRiskFilter(e.target.value as 'ALL' | 'CONCEPT_GAP' | 'FOLLOWUP_INCOMPLETE' | 'HIGH_RISK')}
+                style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', fontSize: 12, fontFamily: 'JetBrains Mono, monospace', outline: 'none' }}
+              >
+                <option value="ALL" style={{ background: '#0A0A0A' }}>All Risk</option>
+                <option value="CONCEPT_GAP" style={{ background: '#0A0A0A' }}>Concept Gap</option>
+                <option value="FOLLOWUP_INCOMPLETE" style={{ background: '#0A0A0A' }}>Follow-up Incomplete</option>
+                <option value="HIGH_RISK" style={{ background: '#0A0A0A' }}>High Risk</option>
+              </select>
+              <motion.button whileHover={{ scale: 1.02 }} onClick={() => setPrioritizeRisk(v => !v)}
+                style={{ padding: '10px 12px', background: prioritizeRisk ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${prioritizeRisk ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 10, color: prioritizeRisk ? '#F59E0B' : 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>
+                {prioritizeRisk ? 'Risk First: ON' : 'Risk First: OFF'}
+              </motion.button>
               {(['score', 'date'] as const).map(s => (
                 <motion.button key={s} whileHover={{ scale: 1.02 }} onClick={() => setSortBy(s)}
                   style={{ padding: '10px 16px', background: sortBy === s ? 'rgba(212,255,0,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${sortBy === s ? 'rgba(212,255,0,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 10, color: sortBy === s ? '#D4FF00' : 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
@@ -222,6 +286,16 @@ export default function RecruiterPage() {
                               <span style={{ padding: '2px 7px', borderRadius: 999, border: `1px solid ${confidenceColor(c.confidenceTier)}66`, background: `${confidenceColor(c.confidenceTier)}1A`, color: confidenceColor(c.confidenceTier), fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
                                 {c.confidenceTier} confidence
                               </span>
+                              {c.conceptGapFlag && (
+                                <span style={{ marginLeft: 6, padding: '2px 7px', borderRadius: 999, border: '1px solid rgba(245,158,11,0.55)', background: 'rgba(245,158,11,0.14)', color: '#F59E0B', fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+                                  Concept Gap
+                                </span>
+                              )}
+                              {typeof c.followUpRequiredCount === 'number' && c.followUpRequiredCount > 0 && (
+                                <span style={{ marginLeft: 6, padding: '2px 7px', borderRadius: 999, border: '1px solid rgba(245,158,11,0.55)', background: 'rgba(245,158,11,0.14)', color: '#F59E0B', fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+                                  Follow-up {c.followUpAnsweredCount ?? 0}/{c.followUpRequiredCount}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -236,10 +310,10 @@ export default function RecruiterPage() {
                           <div key={dim.key} style={{ flex: 1 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                               <span style={{ fontSize: 9, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.2)' }}>{dim.short}</span>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: dim.color, fontFamily: 'JetBrains Mono, monospace' }}>{(c as any)[dim.key]}</span>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: dim.color, fontFamily: 'JetBrains Mono, monospace' }}>{getDimScore(c, dim.key)}</span>
                             </div>
                             <div style={{ height: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
-                              <motion.div initial={{ width: 0 }} animate={{ width: `${(c as any)[dim.key]}%` }}
+                              <motion.div initial={{ width: 0 }} animate={{ width: `${getDimScore(c, dim.key)}%` }}
                                 transition={{ duration: 0.8, ease: 'easeOut' }}
                                 style={{ height: '100%', background: dim.color, borderRadius: 2 }} />
                             </div>
@@ -311,10 +385,10 @@ export default function RecruiterPage() {
                     <div key={dim.key} style={{ marginBottom: 10 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>{dim.label}</span>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: dim.color, fontFamily: 'JetBrains Mono, monospace' }}>{(selected as any)[dim.key]}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: dim.color, fontFamily: 'JetBrains Mono, monospace' }}>{getDimScore(selected, dim.key)}</span>
                       </div>
                       <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${(selected as any)[dim.key]}%` }}
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${getDimScore(selected, dim.key)}%` }}
                           transition={{ duration: 1, ease: 'easeOut' }}
                           style={{ height: '100%', background: dim.color, borderRadius: 2 }} />
                       </div>
@@ -340,6 +414,31 @@ export default function RecruiterPage() {
                     <div>Avg answer time: {selected.avgAnswerSeconds ?? 0}s</div>
                   </div>
                 </div>
+
+                {selected.scoreByQuestionType && (
+                  <div style={{ padding: '12px 14px', background: 'rgba(96,165,250,0.06)', borderRadius: 10, marginBottom: 16, border: '1px solid rgba(96,165,250,0.22)' }}>
+                    <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(96,165,250,0.8)', marginBottom: 8, letterSpacing: '0.08em' }}>CODE VS CONCEPT</div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.8 }}>
+                      <div>Code-grounded: {selected.scoreByQuestionType.CODE_GROUNDED ?? 0}</div>
+                      <div>Conceptual: {selected.scoreByQuestionType.CONCEPTUAL ?? 0}</div>
+                    </div>
+                    {selected.conceptGapFlag && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(245,158,11,0.9)' }}>
+                        Review suggestion: probe trade-offs and architecture reasoning in follow-up.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {typeof selected.followUpRequiredCount === 'number' && selected.followUpRequiredCount > 0 && (
+                  <div style={{ padding: '12px 14px', background: 'rgba(245,158,11,0.08)', borderRadius: 10, marginBottom: 16, border: '1px solid rgba(245,158,11,0.22)' }}>
+                    <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(245,158,11,0.9)', marginBottom: 8, letterSpacing: '0.08em' }}>FOLLOW-UP COMPLETION</div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.8 }}>
+                      <div>Required: {selected.followUpRequiredCount}</div>
+                      <div>Answered: {selected.followUpAnsweredCount ?? 0}</div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Actions */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

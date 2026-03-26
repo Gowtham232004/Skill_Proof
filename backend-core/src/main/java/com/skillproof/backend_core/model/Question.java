@@ -51,6 +51,10 @@ public class Question {
     @Column(name = "question_text", columnDefinition = "TEXT", nullable = false)
     private String questionText;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "question_type")
+    private QuestionType questionType;
+
     // The actual code snippet used to generate this question
     @Column(name = "code_context", columnDefinition = "LONGTEXT")
     private String codeContext;
@@ -59,5 +63,12 @@ public class Question {
         EASY,
         MEDIUM,
         HARD
+    }
+
+    public enum QuestionType {
+        CODE_GROUNDED,
+        CONCEPTUAL,
+        PATTERN,
+        EDGE_CASE
     }
 }

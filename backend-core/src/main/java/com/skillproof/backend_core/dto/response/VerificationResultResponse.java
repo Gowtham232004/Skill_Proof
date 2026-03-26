@@ -18,6 +18,10 @@ public class VerificationResultResponse {
     private Integer integrityAdjustedScore;
     private Integer integrityPenaltyTotal;
     private Map<String, Integer> integrityPenaltyBreakdown;
+    private Map<String, Integer> scoreByQuestionType;
+    private Boolean weightedScoringEnabled;
+    private Integer codeWeightPercent;
+    private Integer conceptualWeightPercent;
 
     // Skill dimension scores 0-100
     private Integer backendScore;
@@ -28,6 +32,14 @@ public class VerificationResultResponse {
 
     // Individual question results
     private List<BadgeResponse.QuestionResultDto> questionResults;
+
+    // Questions that require follow-up due to weak code-grounded specificity
+    private List<Integer> followUpRequired;
+    private Integer followUpRequiredCount;
+    private Integer followUpAnsweredCount;
+
+    // Generated follow-up questions for additional verification step
+    private List<FollowUpQuestionDto> followUpQuestions;
 
     // Badge info
     private String badgeToken;
@@ -45,4 +57,14 @@ public class VerificationResultResponse {
     private Integer avgAnswerSeconds;
 
     private String status;
+
+    @Data
+    @Builder
+    public static class FollowUpQuestionDto {
+        private Integer questionNumber;
+        private String fileReference;
+        private String originalQuestion;
+        private String followUpQuestion;
+        private String targetsIdentifier;
+    }
 }

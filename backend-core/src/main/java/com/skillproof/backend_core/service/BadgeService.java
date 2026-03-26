@@ -16,6 +16,7 @@ import com.skillproof.backend_core.repository.VerificationSessionRepository;
 import com.skillproof.backend_core.util.HmacUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -35,6 +36,15 @@ public class BadgeService {
     private final AnswerRepository answerRepository;
     private final HmacUtil hmacUtil;
     private final ObjectMapper objectMapper;
+
+    @Value("${phase2.weighted-scoring-enabled:false}")
+    private boolean weightedScoringEnabled;
+
+    @Value("${phase2.code-weight-percent:60}")
+    private int codeWeightPercent;
+
+    @Value("${phase2.conceptual-weight-percent:40}")
+    private int conceptualWeightPercent;
 
     private static final String BADGE_BASE_URL = "http://localhost:3000/badge/";
     private static final int MASKED_EXCERPT_CHARS = 240;
@@ -85,6 +95,8 @@ public class BadgeService {
             .tabSwitches(tabSwitches)
             .pasteCount(pasteCount)
             .avgAnswerSeconds(avgAnswerSeconds)
+            .followUpRequiredCount(0)
+            .followUpAnsweredCount(0)
             .isActive(true)
             .build();
 
@@ -120,6 +132,10 @@ public class BadgeService {
         List<BadgeResponse.QuestionResultDto> questionResults = answers.stream()
             .map(this::toQuestionResult)
             .toList();
+        List<BadgeResponse.FollowUpResultDto> followUpResults = readFollowUpResults(
+            badge.getFollowUpResultsJson()
+        );
+        Map<String, Integer> scoreByQuestionType = computeScoreByQuestionType(answers);
 
         Map<String, Integer> penaltyBreakdown = readPenaltyBreakdown(badge.getIntegrityPenaltyBreakdown());
         int technicalScore = badge.getTechnicalScore() != null
@@ -169,6 +185,10 @@ public class BadgeService {
             .integrityAdjustedScore(adjustedScore)
             .integrityPenaltyTotal(penaltyTotal)
             .integrityPenaltyBreakdown(penaltyBreakdown)
+            .scoreByQuestionType(scoreByQuestionType)
+            .weightedScoringEnabled(weightedScoringEnabled)
+            .codeWeightPercent(codeWeightPercent)
+            .conceptualWeightPercent(conceptualWeightPercent)
             .backendScore(badge.getBackendScore())
             .apiDesignScore(badge.getApiDesignScore())
             .errorHandlingScore(badge.getErrorHandlingScore())
@@ -178,6 +198,9 @@ public class BadgeService {
             .tabSwitches(badge.getTabSwitches())
             .pasteCount(badge.getPasteCount())
             .avgAnswerSeconds(badge.getAvgAnswerSeconds())
+            .followUpRequiredCount(Objects.requireNonNullElse(badge.getFollowUpRequiredCount(), 0))
+            .followUpAnsweredCount(Objects.requireNonNullElse(badge.getFollowUpAnsweredCount(), 0))
+            .followUpResults(followUpResults)
             .answeredCount(answeredCount)
             .totalQuestions(totalQuestions)
             .skippedCount(skippedCount)
@@ -194,6 +217,11 @@ public class BadgeService {
         return BadgeResponse.QuestionResultDto.builder()
             .questionNumber(answer.getQuestion().getQuestionNumber())
             .difficulty(answer.getQuestion().getDifficulty().name())
+            .questionType(
+                answer.getQuestion().getQuestionType() != null
+                    ? answer.getQuestion().getQuestionType().name()
+                    : com.skillproof.backend_core.model.Question.QuestionType.CODE_GROUNDED.name()
+            )
             .fileReference(answer.getQuestion().getFileReference())
             .questionText(answer.getQuestion().getQuestionText())
             .questionCodeSnippet(buildQuestionCodeSnippet(answer.getQuestion().getCodeContext()))
@@ -336,5 +364,79 @@ public class BadgeService {
             log.warn("Could not parse integrity penalty breakdown");
             return Map.of();
         }
+    }
+
+    private Map<String, Integer> computeScoreByQuestionType(List<Answer> answers) {
+        Map<String, List<Integer>> groupedScores = new java.util.LinkedHashMap<>();
+
+        for (Answer answer : answers) {
+            String questionType = answer.getQuestion().getQuestionType() != null
+                ? answer.getQuestion().getQuestionType().name()
+                : com.skillproof.backend_core.model.Question.QuestionType.CODE_GROUNDED.name();
+
+            int accuracy = Objects.requireNonNullElse(answer.getAccuracyScore(), 0);
+            int depth = Objects.requireNonNullElse(answer.getDepthScore(), 0);
+            int specificity = Objects.requireNonNullElse(answer.getSpecificityScore(), 0);
+            int questionScore = (accuracy * 4 + depth * 3 + specificity * 3) / 10;
+            int normalized = questionScore * 10;
+
+            groupedScores.computeIfAbsent(questionType, ignored -> new java.util.ArrayList<>())
+                .add(normalized);
+        }
+
+        Map<String, Integer> scoreByQuestionType = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, List<Integer>> entry : groupedScores.entrySet()) {
+            List<Integer> values = entry.getValue();
+            int avg = values.isEmpty()
+                ? 0
+                : (int) Math.round(values.stream().mapToInt(Integer::intValue).average().orElse(0));
+            scoreByQuestionType.put(entry.getKey(), avg);
+        }
+
+        return scoreByQuestionType;
+    }
+
+    private List<BadgeResponse.FollowUpResultDto> readFollowUpResults(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            List<Map<String, Object>> parsed = objectMapper.readValue(
+                raw,
+                new TypeReference<List<Map<String, Object>>>() {}
+            );
+
+            return parsed.stream()
+                .map(entry -> BadgeResponse.FollowUpResultDto.builder()
+                    .questionNumber(asInt(entry.get("questionNumber")))
+                    .followUpQuestion(asString(entry.get("followUpQuestion")))
+                    .skipped(asBoolean(entry.get("skipped")))
+                    .answerLength(asInt(entry.get("answerLength")))
+                    .answerExcerpt(asString(entry.get("answerExcerpt")))
+                    .build())
+                .toList();
+        } catch (JsonProcessingException e) {
+            log.warn("Could not parse follow-up results JSON");
+            return List.of();
+        }
+    }
+
+    private Integer asInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return 0;
+    }
+
+    private String asString(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private Boolean asBoolean(Object value) {
+        if (value instanceof Boolean boolValue) {
+            return boolValue;
+        }
+        return false;
     }
 }

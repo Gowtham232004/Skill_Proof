@@ -1,8 +1,11 @@
 import os
 import json
 import logging
+import re
 from groq import Groq
 from dotenv import load_dotenv
+
+from app.utils.prompt_templates import HYBRID_QUESTION_GENERATION_PROMPT, FOLLOWUP_QUESTION_PROMPT
 
 load_dotenv()
 
@@ -10,8 +13,42 @@ logger = logging.getLogger(__name__)
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def _validate_questions(questions: list) -> bool:
-    """Check if questions are specific and code-grounded, not generic."""
+ALLOWED_TYPES = {"CODE_GROUNDED", "CONCEPTUAL"}
+
+
+def _extract_json_object(raw: str) -> dict:
+    text = raw.strip()
+    if "```" in text:
+        start = text.find("```") + 3
+        end = text.rfind("```")
+        text = text[start:end].strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+
+    left = text.find("{")
+    right = text.rfind("}")
+    if left == -1 or right == -1 or left >= right:
+        raise ValueError("No JSON object found in Groq response")
+
+    return json.loads(text[left:right + 1])
+
+def _expected_difficulty(index: int, total_questions: int) -> str:
+    if total_questions <= 5:
+        if index <= 2:
+            return "EASY"
+        if index <= 4:
+            return "MEDIUM"
+        return "HARD"
+
+    if index <= 2:
+        return "EASY"
+    if index <= 5:
+        return "MEDIUM"
+    return "HARD"
+
+
+def _validate_questions(questions: list, total_questions: int, conceptual_questions: int) -> bool:
+    """Check if questions are specific and follow the requested hybrid mix."""
     # Forbidden generic patterns that indicate weak questions
     forbidden_phrases = [
         "walk me through the overall architecture",
@@ -26,12 +63,42 @@ def _validate_questions(questions: list) -> bool:
         "what would you change about",
     ]
     
-    if not questions or len(questions) < 5:
-        logger.warning(f"Validation failed: Expected 5 questions, got {len(questions)}")
+    if not questions or len(questions) != total_questions:
+        logger.warning(
+            "Validation failed: Expected %s questions, got %s",
+            total_questions,
+            len(questions) if questions else 0,
+        )
         return False
+
+    expected_code_grounded = max(0, total_questions - max(0, conceptual_questions))
+    actual_conceptual = 0
+    actual_code_grounded = 0
     
     for i, q in enumerate(questions):
         q_text = q.get("question_text", "").lower()
+        q_number = q.get("question_number", i + 1)
+        q_type = str(q.get("question_type", "CODE_GROUNDED")).upper()
+
+        if q_type not in ALLOWED_TYPES:
+            logger.warning("Question %s has invalid type: %s", q_number, q_type)
+            return False
+
+        if q_type == "CONCEPTUAL":
+            actual_conceptual += 1
+        else:
+            actual_code_grounded += 1
+
+        difficulty = str(q.get("difficulty", "")).upper()
+        expected_difficulty = _expected_difficulty(q_number, total_questions)
+        if difficulty != expected_difficulty:
+            logger.warning(
+                "Question %s has difficulty %s but expected %s",
+                q_number,
+                difficulty,
+                expected_difficulty,
+            )
+            return False
         
         # Check for forbidden patterns
         for phrase in forbidden_phrases:
@@ -41,7 +108,9 @@ def _validate_questions(questions: list) -> bool:
         
         # Check for file reference specificity
         file_ref = q.get("file_reference", "").strip()
-        if not file_ref or file_ref.lower() in ["project", "unknown", "file.txt", "code"]:
+        if q_type == "CODE_GROUNDED" and (
+            not file_ref or file_ref.lower() in ["project", "unknown", "file.txt", "code"]
+        ):
             logger.warning(f"Question {i+1} has vague file reference: '{file_ref}'")
             return False
         
@@ -49,40 +118,53 @@ def _validate_questions(questions: list) -> bool:
         if len(q_text) < 30:
             logger.warning(f"Question {i+1} is too short ({len(q_text)} chars)")
             return False
+
+    if actual_conceptual != conceptual_questions:
+        logger.warning(
+            "Validation failed: expected %s conceptual questions, got %s",
+            conceptual_questions,
+            actual_conceptual,
+        )
+        return False
+
+    if actual_code_grounded != expected_code_grounded:
+        logger.warning(
+            "Validation failed: expected %s code-grounded questions, got %s",
+            expected_code_grounded,
+            actual_code_grounded,
+        )
+        return False
     
-    logger.info(f"✓ Questions passed validation: {len(questions)} specific, code-grounded questions")
+    logger.info(
+        "✓ Questions passed validation: total=%s, code_grounded=%s, conceptual=%s",
+        len(questions),
+        actual_code_grounded,
+        actual_conceptual,
+    )
     return True
 
 
-def generate_questions(code_summary: str, repo_name: str, frameworks: list, primary_language: str = "Unknown") -> list:
-    # Add variety instruction to prompt to encourage different question angles
-    variety_hint = "Focus on DIFFERENT aspects each time: implementation details, architectural decisions, error handling, performance considerations, and design patterns."
-    
-    prompt = f"""You are a senior technical interviewer. Analyze this code and generate exactly 5 interview questions.
+def generate_questions(
+    code_summary: str,
+    repo_name: str,
+    frameworks: list,
+    primary_language: str = "Unknown",
+    total_questions: int = 5,
+    conceptual_questions: int = 0,
+) -> list:
+    total_questions = max(5, min(total_questions, 7))
+    conceptual_questions = max(0, min(conceptual_questions, total_questions - 1))
+    code_grounded_questions = total_questions - conceptual_questions
 
-Repository: {repo_name}
-Primary Language: {primary_language}
-Frameworks: {', '.join(frameworks) if frameworks else 'Unknown'}
-
-{variety_hint}
-
-CODE SUMMARY:
-{code_summary[:8000]}
-
-Generate 5 questions that test genuine understanding of THIS specific code.
-Each question must reference a specific file, function, or decision visible in the code above.
-Vary the questions to cover different aspects of the implementation.
-
-Return ONLY valid JSON array, no other text:
-[
-  {{
-    "questionNumber": 1,
-    "difficulty": "EASY",
-    "fileReference": "specific_file.ts",
-    "questionText": "question about specific code..."
-  }}
-]
-Difficulties: 2 EASY, 2 MEDIUM, 1 HARD."""
+    prompt = HYBRID_QUESTION_GENERATION_PROMPT.format(
+        total_questions=total_questions,
+        code_grounded_questions=code_grounded_questions,
+        conceptual_questions=conceptual_questions,
+        code_summary=code_summary[:8000],
+        repo_name=repo_name,
+        primary_language=primary_language,
+        frameworks=', '.join(frameworks) if frameworks else 'Unknown',
+    )
 
     max_retries = 2
     for attempt in range(max_retries):
@@ -128,15 +210,21 @@ Difficulties: 2 EASY, 2 MEDIUM, 1 HARD."""
                     q['file_reference'] = q.pop('fileReference')
                 if 'questionText' in q:
                     q['question_text'] = q.pop('questionText')
+                if 'questionType' in q:
+                    q['question_type'] = q.pop('questionType')
                 
                 # Ensure all required fields exist with defaults
                 q.setdefault('question_number', 0)
                 q.setdefault('file_reference', '')
                 q.setdefault('question_text', '')
                 q.setdefault('difficulty', 'MEDIUM')
+                q.setdefault('question_type', 'CODE_GROUNDED')
+
+                q['question_type'] = str(q['question_type']).upper()
+                q['difficulty'] = str(q['difficulty']).upper()
             
             # Validate question quality
-            if _validate_questions(parsed):
+            if _validate_questions(parsed, total_questions, conceptual_questions):
                 logger.info(f"✓ Successfully generated {len(parsed)} questions (attempt {attempt+1})")
                 return parsed
             else:
@@ -161,3 +249,43 @@ Difficulties: 2 EASY, 2 MEDIUM, 1 HARD."""
             continue
     
     return []
+
+
+def generate_followup_question(
+    original_question: str,
+    file_reference: str,
+    code_context: str,
+    developer_answer: str,
+) -> dict:
+    prompt = FOLLOWUP_QUESTION_PROMPT.format(
+        original_question=original_question.strip(),
+        file_reference=file_reference.strip() or "unknown",
+        code_context=(code_context or "")[:3000],
+        developer_answer=developer_answer.strip(),
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        max_tokens=220,
+    )
+
+    raw = response.choices[0].message.content.strip()
+    parsed = _extract_json_object(raw)
+
+    followup = str(parsed.get("followup_question", "")).strip()
+    target = str(parsed.get("targets_identifier", "")).strip()
+
+    if len(followup) < 20:
+        raise ValueError("Follow-up question too short or missing")
+
+    if not target:
+        # Best-effort fallback extraction from follow-up text to keep contract strict.
+        tokens = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", followup)
+        target = tokens[0] if tokens else "unknown_identifier"
+
+    return {
+        "followup_question": followup,
+        "targets_identifier": target,
+    }

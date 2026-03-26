@@ -36,6 +36,20 @@ export const submitAnswers = (
     avgAnswerSeconds: meta?.avgAnswerSeconds ?? 0,
   })
 
+export const submitFollowUpAnswers = (
+  sessionId: number,
+  followUps: {
+    questionNumber: number
+    followUpQuestion: string
+    answerText?: string
+    skipped?: boolean
+  }[]
+) =>
+  api.post('/api/verify/submit-followups', {
+    sessionId,
+    followUps,
+  })
+
 // Badge
 export const getBadge = (token: string) =>
   api.get(`/api/badge/${token}`)

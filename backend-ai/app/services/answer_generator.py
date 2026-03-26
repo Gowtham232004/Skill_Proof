@@ -95,12 +95,16 @@ def apply_quality_guards(accuracy: int,
     word_count = len(answer_text.split())
     identifier_refs = count_identifier_references(answer_text, code_context)
 
-    if identifier_refs < 2:
-        specificity = min(specificity, 3)
-
+    # Mandatory identifier rule:
+    # 0 identifiers => specificity 1-2, 1 identifier => specificity max 4, 2+ normal.
     if identifier_refs == 0:
-        depth = min(depth, 4)
-        accuracy = min(accuracy, 6)
+        specificity = min(specificity, 2)
+        depth = min(depth, 3)
+        accuracy = min(accuracy, 4)
+    elif identifier_refs == 1:
+        specificity = min(specificity, 4)
+    elif identifier_refs < 2:
+        specificity = min(specificity, 4)
 
     if word_count < MIN_WORD_COUNT_FOR_DEPTH:
         depth = min(depth, 4)
@@ -193,10 +197,15 @@ def evaluate_answers(questions_and_answers: list):
                     json_str = raw[start:end].strip()
                     scored = json.loads(json_str)
 
-                    accuracy = min(10, max(0, int(scored.get("accuracyScore", 2))))
-                    depth = min(10, max(0, int(scored.get("depthScore", 2))))
-                    specificity = min(10, max(0, int(scored.get("specificityScore", 2))))
-                    feedback = str(scored.get("feedback", "Evaluated."))[:100]
+                    accuracy_raw = scored.get("accuracy_score", scored.get("accuracyScore", 2))
+                    depth_raw = scored.get("depth_score", scored.get("depthScore", 2))
+                    specificity_raw = scored.get("specificity_score", scored.get("specificityScore", 2))
+                    feedback_raw = scored.get("ai_feedback", scored.get("feedback", "Evaluated."))
+
+                    accuracy = min(10, max(0, int(accuracy_raw)))
+                    depth = min(10, max(0, int(depth_raw)))
+                    specificity = min(10, max(0, int(specificity_raw)))
+                    feedback = str(feedback_raw)[:100]
 
                     accuracy, depth, specificity, word_count, identifier_refs = apply_quality_guards(
                         accuracy,

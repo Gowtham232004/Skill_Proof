@@ -11,6 +11,7 @@ public class QuestionDto {
     private Long id;
     private Integer questionNumber;
     private String difficulty;
+    private String questionType;
     private String fileReference;
     private String questionText;
     private String codeContextSnippet;

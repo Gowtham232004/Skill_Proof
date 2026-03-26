@@ -99,9 +99,13 @@ Evaluate this answer on three dimensions (each 0-10):
    - 3-4: Could apply to any project — not specific
    - 0-2: Completely generic answer
 
-CRITICAL SCORING RULE (must follow):
-- If the answer does NOT mention at least 2 specific identifiers from the ACTUAL CODE
-  (function names, class names, variables, constants), SPECIFICITY must be 3 or below.
+MANDATORY CHECK (non-overridable):
+- Count how many specific identifiers from ACTUAL CODE appear in the answer
+  (function names, class names, variable names, constants, file names).
+- If identifier count = 0: specificity must be 1-2.
+- If identifier count = 1: specificity must be 4 or below.
+- If identifier count >= 2: score specificity normally.
+- This rule cannot be overridden by answer length, confidence of tone, or writing quality.
 
 GENERIC-ANSWER GUIDANCE:
 - Confident but generic answers that could apply to any project should score roughly:
@@ -117,5 +121,84 @@ Return ONLY valid JSON. No explanation text. No markdown:
   "specificity_score": <0-10>,
   "ai_feedback": "2-3 sentences explaining the score. What was good? What was missing? 
                   Be specific — reference the actual code and the answer."
+}}
+"""
+
+
+HYBRID_QUESTION_GENERATION_PROMPT = """
+You are a senior software engineer conducting a technical interview.
+You have been given a code summary of a developer's GitHub project.
+
+Generate exactly {total_questions} interview questions with this mix:
+- {code_grounded_questions} CODE_GROUNDED questions
+- {conceptual_questions} CONCEPTUAL questions
+
+Definitions:
+- CODE_GROUNDED: must reference a specific file/class/function/variable from the summary.
+- CONCEPTUAL: must test engineering reasoning (trade-offs, failure modes, design principles)
+  but still stay relevant to this repo's stack and architecture.
+
+STRICT RULES:
+1. Return ONLY valid JSON array. No markdown, no prose.
+2. Keep questions non-generic and interview-ready.
+3. Each question must include:
+   - questionNumber (1..{total_questions})
+   - difficulty (EASY|MEDIUM|HARD)
+   - fileReference (empty string allowed only for conceptual questions)
+   - questionType (CODE_GROUNDED|CONCEPTUAL)
+   - questionText
+4. Difficulty split:
+   - For 5 questions: Q1-2 EASY, Q3-4 MEDIUM, Q5 HARD
+   - For 7 questions: Q1-2 EASY, Q3-5 MEDIUM, Q6-7 HARD
+5. Avoid duplicate question intent.
+
+CODE SUMMARY:
+{code_summary}
+
+PROJECT: {repo_name}
+PRIMARY LANGUAGE: {primary_language}
+FRAMEWORKS: {frameworks}
+
+Return this JSON array format:
+[
+  {{
+    "questionNumber": 1,
+    "difficulty": "EASY",
+    "fileReference": "AuthService.java",
+    "questionType": "CODE_GROUNDED",
+    "questionText": "Specific question"
+  }}
+]
+"""
+
+
+FOLLOWUP_QUESTION_PROMPT = """
+You are a senior software engineer conducting a technical interview follow-up.
+
+The developer answered a code-specific question, but their answer was incomplete.
+Generate exactly 1 follow-up question that targets what they mentioned but did not explain fully.
+
+STRICT RULES:
+1. The follow-up must reference a specific identifier or behavior from CODE CONTEXT.
+2. The follow-up must be answerable only by someone who read the actual source context.
+3. Keep it concise and interview-ready.
+4. Return ONLY valid JSON with no markdown/prose.
+
+ORIGINAL QUESTION:
+{original_question}
+
+FILE REFERENCE:
+{file_reference}
+
+CODE CONTEXT:
+{code_context}
+
+DEVELOPER ANSWER:
+{developer_answer}
+
+Return this exact JSON:
+{{
+  "followup_question": "one focused follow-up question",
+  "targets_identifier": "specific function/class/variable/behavior name"
 }}
 """
