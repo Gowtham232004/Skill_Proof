@@ -1,6 +1,7 @@
 package com.skillproof.backend_core.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +36,78 @@ public class AiGatewayService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+
+    public Map<String, Object> evaluateSingleAnswer(String questionText,
+                                                    String fileRef,
+                                                    String codeContext,
+                                                    String answerText) {
+        try {
+            Map<String, Object> answer = new HashMap<>();
+            answer.put("question_id", 1);
+            answer.put("question_text", questionText != null ? questionText : "");
+            answer.put("file_reference", fileRef != null ? fileRef : "");
+            answer.put("code_context", codeContext != null ? codeContext : "");
+            answer.put("answer_text", answerText != null ? answerText : "");
+
+            Map<String, Object> request = Map.of(
+                "session_id", 0,
+                "answers", List.of(answer),
+                "primary_language", "Unknown"
+            );
+
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            String url = aiServiceUrl + "/internal/evaluate-answers";
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                throw new ApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI_EVALUATION_UNAVAILABLE",
+                    "AI evaluation service returned an empty response."
+                );
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(response, Map.class);
+            Object resultsObj = parsed.get("results");
+            if (!(resultsObj instanceof List<?> results) || results.isEmpty()) {
+                throw new ApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI_EVALUATION_UNAVAILABLE",
+                    "AI evaluation service returned incomplete results."
+                );
+            }
+
+            Object first = results.get(0);
+            if (!(first instanceof Map<?, ?> firstResult)) {
+                throw new ApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI_EVALUATION_UNAVAILABLE",
+                    "AI evaluation service returned invalid data format."
+                );
+            }
+
+            Map<String, Object> normalized = new HashMap<>();
+            normalized.put("accuracy_score", firstResult.get("accuracy_score") != null ? firstResult.get("accuracy_score") : 0);
+            normalized.put("depth_score", firstResult.get("depth_score") != null ? firstResult.get("depth_score") : 0);
+            normalized.put("specificity_score", firstResult.get("specificity_score") != null ? firstResult.get("specificity_score") : 0);
+            normalized.put("composite_score", firstResult.get("composite_score") != null ? firstResult.get("composite_score") : 0);
+            normalized.put("ai_feedback", firstResult.get("ai_feedback") != null ? firstResult.get("ai_feedback") : "Evaluation unavailable");
+            return normalized;
+        } catch (RestClientException | JsonProcessingException e) {
+            log.error("Single answer evaluation AI call failed", e);
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_EVALUATION_UNAVAILABLE",
+                "AI evaluation service is currently unavailable. Please try again."
+            );
+        }
+    }
+
     public Map<String, Object> evaluateAnswers(Long sessionId,
                                             List<Map<String, Object>> answers,
                                             String primaryLanguage) {

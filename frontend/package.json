@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "clean:cache": "node -e \"const fs=require('fs');fs.rmSync('.next',{recursive:true,force:true});console.log('Cleared .next cache');\"",
+    "dev": "npm run clean:cache && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

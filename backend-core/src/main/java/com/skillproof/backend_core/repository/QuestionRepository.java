@@ -15,5 +15,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 
     List<Question> findBySessionOrderByQuestionNumber(VerificationSession session);
 
+    List<Question> findBySessionIdOrderByQuestionNumber(Long sessionId);
+
     long countBySessionId(Long sessionId);
 }

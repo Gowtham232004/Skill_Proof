@@ -1,9 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { api } from '@/lib/api'
-import { parseApiError } from '@/lib/apiError'
+import { api, createLiveSession } from '@/lib/api'
+import { extractExistingLiveSessionCode, parseApiError } from '@/lib/apiError'
 import ErrorBanner from '@/app/components/ErrorBanner'
 import InfoBanner from '@/app/components/InfoBanner'
 
@@ -40,6 +40,69 @@ interface CurrentUser {
   githubUsername?: string
 }
 
+const demoCandidates = (): Candidate[] => [
+  {
+    sessionId: 1,
+    githubUsername: 'Gowtham232004',
+    avatarUrl: '',
+    displayName: 'Gowtham M S',
+    repoName: 'Automl',
+    overallScore: 78,
+    backendScore: 85,
+    apiDesignScore: 72,
+    errorHandlingScore: 68,
+    codeQualityScore: 88,
+    documentationScore: 55,
+    confidenceTier: 'Medium',
+    tabSwitches: 1,
+    pasteCount: 0,
+    avgAnswerSeconds: 56,
+    badgeToken: 'sp_demo',
+    issuedAt: new Date().toISOString(),
+    primaryLanguage: 'TypeScript',
+  },
+  {
+    sessionId: 2,
+    githubUsername: 'priya_s',
+    avatarUrl: '',
+    displayName: 'Priya Sharma',
+    repoName: 'ecommerce-api',
+    overallScore: 87,
+    backendScore: 92,
+    apiDesignScore: 85,
+    errorHandlingScore: 80,
+    codeQualityScore: 90,
+    documentationScore: 70,
+    confidenceTier: 'High',
+    tabSwitches: 0,
+    pasteCount: 0,
+    avgAnswerSeconds: 82,
+    badgeToken: 'sp_demo2',
+    issuedAt: new Date().toISOString(),
+    primaryLanguage: 'Java',
+  },
+  {
+    sessionId: 3,
+    githubUsername: 'arjun_n',
+    avatarUrl: '',
+    displayName: 'Arjun Nair',
+    repoName: 'ml-pipeline',
+    overallScore: 71,
+    backendScore: 75,
+    apiDesignScore: 68,
+    errorHandlingScore: 60,
+    codeQualityScore: 82,
+    documentationScore: 50,
+    confidenceTier: 'Low',
+    tabSwitches: 4,
+    pasteCount: 3,
+    avgAnswerSeconds: 20,
+    badgeToken: 'sp_demo3',
+    issuedAt: new Date().toISOString(),
+    primaryLanguage: 'Python',
+  },
+]
+
 const DIMS = [
   { key: 'backendScore', label: 'Backend', short: 'BK', color: '#D4FF00' },
   { key: 'apiDesignScore', label: 'API', short: 'AP', color: '#60A5FA' },
@@ -60,42 +123,64 @@ export default function RecruiterPage() {
   const [prioritizeRisk, setPrioritizeRisk] = useState(false)
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [loadError, setLoadError] = useState('')
+  const [loadErrorCode, setLoadErrorCode] = useState('')
+  const [liveActionError, setLiveActionError] = useState('')
   const [fallbackInfo, setFallbackInfo] = useState('')
+  const [creatingLiveFor, setCreatingLiveFor] = useState<string | null>(null)
+
+  const fetchCandidates = useCallback(async () => {
+    setLoading(true)
+    setLoadError('')
+    setLoadErrorCode('')
+    setFallbackInfo('')
+
+    const token = localStorage.getItem('sp_token') || localStorage.getItem('skillproof_token')
+    const userStr = localStorage.getItem('sp_user')
+
+    if (token && !localStorage.getItem('sp_token')) {
+      localStorage.setItem('sp_token', token)
+    }
+
+    if (!token) {
+      router.push('/')
+      return
+    }
+
+    if (userStr) {
+      try {
+        setUser(JSON.parse(userStr))
+      } catch {
+        setUser(null)
+      }
+    }
+
+    try {
+      const res = await api.get('/api/recruiter/candidates')
+      setCandidates(res.data)
+    } catch (err) {
+      const parsed = parseApiError(err, 'Could not load candidates. Showing demo data.')
+      setLoadError(parsed.message)
+      setLoadErrorCode(parsed.code ?? '')
+
+      const status = (err as { response?: { status?: number } })?.response?.status
+      const isRoleError = status === 403 || parsed.code === 'RECRUITER_ROLE_REQUIRED'
+
+      if (isRoleError) {
+        setCandidates([])
+        setFallbackInfo('')
+        return
+      }
+
+      setFallbackInfo('Showing demo candidates until backend data is available.')
+      setCandidates(demoCandidates())
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
 
   useEffect(() => {
-    const token = localStorage.getItem('sp_token')
-    const userStr = localStorage.getItem('sp_user')
-    if (!token) { router.push('/'); return }
-    if (userStr) setUser(JSON.parse(userStr))
-
-    api.get('/api/recruiter/candidates')
-      .then(res => {
-        setCandidates(res.data)
-        setLoading(false)
-      })
-      .catch((err) => {
-        const parsed = parseApiError(err, 'Could not load candidates. Showing demo data.')
-        setLoadError(parsed.message)
-
-        const status = err?.response?.status
-        const isRoleError = status === 403 || parsed.code === 'RECRUITER_ROLE_REQUIRED'
-
-        if (isRoleError) {
-          setCandidates([])
-          setFallbackInfo('')
-          setLoading(false)
-          return
-        }
-
-        setFallbackInfo('Showing demo candidates until backend data is available.')
-        setCandidates([
-          { sessionId: 1, githubUsername: 'Gowtham232004', avatarUrl: '', displayName: 'Gowtham M S', repoName: 'Automl', overallScore: 78, backendScore: 85, apiDesignScore: 72, errorHandlingScore: 68, codeQualityScore: 88, documentationScore: 55, confidenceTier: 'Medium', tabSwitches: 1, pasteCount: 0, avgAnswerSeconds: 56, badgeToken: 'sp_demo', issuedAt: new Date().toISOString(), primaryLanguage: 'TypeScript' },
-          { sessionId: 2, githubUsername: 'priya_s', avatarUrl: '', displayName: 'Priya Sharma', repoName: 'ecommerce-api', overallScore: 87, backendScore: 92, apiDesignScore: 85, errorHandlingScore: 80, codeQualityScore: 90, documentationScore: 70, confidenceTier: 'High', tabSwitches: 0, pasteCount: 0, avgAnswerSeconds: 82, badgeToken: 'sp_demo2', issuedAt: new Date().toISOString(), primaryLanguage: 'Java' },
-          { sessionId: 3, githubUsername: 'arjun_n', avatarUrl: '', displayName: 'Arjun Nair', repoName: 'ml-pipeline', overallScore: 71, backendScore: 75, apiDesignScore: 68, errorHandlingScore: 60, codeQualityScore: 82, documentationScore: 50, confidenceTier: 'Low', tabSwitches: 4, pasteCount: 3, avgAnswerSeconds: 20, badgeToken: 'sp_demo3', issuedAt: new Date().toISOString(), primaryLanguage: 'Python' },
-        ])
-        setLoading(false)
-      })
-  }, [])
+    void fetchCandidates()
+  }, [fetchCandidates])
 
   const filtered = candidates
     .filter(c =>
@@ -140,6 +225,32 @@ export default function RecruiterPage() {
   const getDimScore = (candidate: Candidate, key: (typeof DIMS)[number]['key']) => candidate[key]
   const policySource = selected ?? filtered[0]
 
+  const handleStartLive = async (badgeToken: string) => {
+    setLiveActionError('')
+    setCreatingLiveFor(badgeToken)
+    try {
+      const response = await createLiveSession({ badgeToken })
+      const sessionCode = String(response.data?.sessionCode ?? '').trim()
+      if (!sessionCode) {
+        setLiveActionError('Live session was created, but session code is missing in response.')
+        return
+      }
+      router.push(`/recruiter/live/${sessionCode}`)
+    } catch (err) {
+      const parsed = parseApiError(err, 'Could not start live interview for this candidate.')
+      const existingCode = parsed.code === 'LIVE_SESSION_ALREADY_EXISTS'
+        ? extractExistingLiveSessionCode(parsed.details)
+        : null
+      if (existingCode) {
+        router.push(`/recruiter/live/${existingCode}?resumed=1`)
+        return
+      }
+      setLiveActionError(parsed.message)
+    } finally {
+      setCreatingLiveFor(null)
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: 'Outfit, sans-serif' }}>
       <style dangerouslySetInnerHTML={{ __html: `
@@ -162,6 +273,10 @@ export default function RecruiterPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {user && <span style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.35)' }}>@{user.githubUsername}</span>}
+          <motion.button whileHover={{ scale: 1.02 }} onClick={() => router.push('/challenge/create')}
+            style={{ padding: '8px 16px', background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.35)', borderRadius: 8, color: '#BFDBFE', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            + Create Challenge
+          </motion.button>
           <motion.button whileHover={{ scale: 1.02 }} onClick={() => router.push('/verify')}
             style={{ padding: '8px 16px', background: '#D4FF00', border: 'none', borderRadius: 8, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
             + New Candidate
@@ -191,8 +306,22 @@ export default function RecruiterPage() {
         {loadError && (
           <>
             <ErrorBanner message={loadError} code="CANDIDATE_LOAD_ERROR" />
+            {(loadErrorCode === 'NETWORK_UNAVAILABLE' || loadErrorCode === 'REQUEST_TIMEOUT') && (
+              <div style={{ marginTop: 8, marginBottom: 8 }}>
+                <button
+                  onClick={() => { void fetchCandidates() }}
+                  style={{ padding: '8px 12px', background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.35)', borderRadius: 8, color: '#BFDBFE', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}
+                >
+                  Retry backend load
+                </button>
+              </div>
+            )}
             {fallbackInfo && <InfoBanner message={fallbackInfo} compact />}
           </>
+        )}
+
+        {liveActionError && (
+          <ErrorBanner message={liveActionError} code="LIVE_SESSION_START_ERROR" />
         )}
 
         {policySource && (
@@ -250,7 +379,7 @@ export default function RecruiterPage() {
             </div>
 
             {/* Header */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 260px 90px', gap: 12, padding: '8px 16px', marginBottom: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 260px 170px', gap: 12, padding: '8px 16px', marginBottom: 6 }}>
               {['CANDIDATE', 'SCORE', 'SKILL BREAKDOWN', 'ACTION'].map(h => (
                 <span key={h} style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.2)', letterSpacing: '0.1em' }}>{h}</span>
               ))}
@@ -271,7 +400,7 @@ export default function RecruiterPage() {
                     <motion.div key={c.sessionId}
                       initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                       whileHover={{ x: 3 }} onClick={() => setSelected(isSelected ? null : c)}
-                      style={{ display: 'grid', gridTemplateColumns: '1fr 70px 260px 90px', gap: 12, alignItems: 'center', padding: '14px 16px', background: isSelected ? 'rgba(212,255,0,0.04)' : '#0A0A0A', border: `1px solid ${isSelected ? 'rgba(212,255,0,0.25)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 14, cursor: 'pointer', transition: 'border-color 0.2s' }}>
+                      style={{ display: 'grid', gridTemplateColumns: '1fr 70px 260px 170px', gap: 12, alignItems: 'center', padding: '14px 16px', background: isSelected ? 'rgba(212,255,0,0.04)' : '#0A0A0A', border: `1px solid ${isSelected ? 'rgba(212,255,0,0.25)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 14, cursor: 'pointer', transition: 'border-color 0.2s' }}>
 
                       {/* Identity */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
@@ -322,11 +451,19 @@ export default function RecruiterPage() {
                       </div>
 
                       {/* Action */}
-                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
-                        onClick={e => { e.stopPropagation(); router.push(`/recruiter/${c.badgeToken}`) }}
-                        style={{ padding: '7px 12px', background: 'rgba(212,255,0,0.08)', border: '1px solid rgba(212,255,0,0.2)', borderRadius: 8, color: '#D4FF00', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>
-                        Review →
-                      </motion.button>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                          onClick={e => { e.stopPropagation(); router.push(`/recruiter/${c.badgeToken}`) }}
+                          style={{ padding: '7px 10px', background: 'rgba(212,255,0,0.08)', border: '1px solid rgba(212,255,0,0.2)', borderRadius: 8, color: '#D4FF00', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>
+                          Review
+                        </motion.button>
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                          onClick={e => { e.stopPropagation(); void handleStartLive(c.badgeToken) }}
+                          disabled={creatingLiveFor === c.badgeToken}
+                          style={{ padding: '7px 10px', background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.32)', borderRadius: 8, color: '#93C5FD', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', opacity: creatingLiveFor === c.badgeToken ? 0.7 : 1 }}>
+                          {creatingLiveFor === c.badgeToken ? 'Starting...' : 'Start Live'}
+                        </motion.button>
+                      </div>
                     </motion.div>
                   )
                 })}

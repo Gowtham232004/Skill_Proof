@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import time
+import ast
 from groq import Groq
 from app.models.evaluation_models import SingleAnswerResult, SkillScores
 from app.utils.prompt_templates import ANSWER_EVALUATION_PROMPT, REFERENCE_ANSWER_PROMPT
@@ -301,16 +302,24 @@ def generate_reference_answer(question_text: str, file_reference: str, code_cont
     raw = response.choices[0].message.content.strip()
     start = raw.find('{')
     end = raw.rfind('}') + 1
-    if start < 0 or end <= start:
-        raise ValueError("No JSON object found in reference answer response")
 
-    json_str = raw[start:end].strip()
-    try:
-        parsed = json.loads(json_str)
-    except json.JSONDecodeError:
-        repaired = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_str)
-        repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
-        parsed = json.loads(repaired)
+    parsed = {}
+    if start >= 0 and end > start:
+        json_str = raw[start:end].strip()
+        try:
+            parsed = json.loads(json_str)
+        except json.JSONDecodeError:
+            repaired = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_str)
+            repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+            # Best effort: tolerate python-dict style output using single quotes.
+            try:
+                parsed = json.loads(repaired)
+            except json.JSONDecodeError:
+                try:
+                    literal = ast.literal_eval(json_str)
+                    parsed = literal if isinstance(literal, dict) else {}
+                except (ValueError, SyntaxError):
+                    parsed = {}
 
     reference_answer = str(parsed.get("reference_answer", "")).strip()
     checkpoints = parsed.get("review_checkpoints", [])
@@ -319,7 +328,18 @@ def generate_reference_answer(question_text: str, file_reference: str, code_cont
 
     sanitized_checkpoints = [str(item).strip() for item in checkpoints if str(item).strip()][:5]
     if not reference_answer:
-        reference_answer = "Reference answer unavailable for this question."
+        reference_answer = (
+            "A precise reference answer could not be generated automatically. "
+            "Use the shown code context and ask the candidate to explain implementation intent, "
+            "data flow, and failure handling for this question."
+        )
+
+    if not sanitized_checkpoints:
+        sanitized_checkpoints = [
+            "Did the answer reference real identifiers from the shown code?",
+            "Did the answer explain why this implementation was chosen?",
+            "Did the answer cover edge cases or failure behavior?",
+        ]
 
     return {
         "reference_answer": reference_answer,

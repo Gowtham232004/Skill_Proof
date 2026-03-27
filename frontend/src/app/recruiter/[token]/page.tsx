@@ -3,8 +3,8 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { getRecruiterCandidateDetail, getRecruiterReferenceAnswer } from '@/lib/api'
-import { parseApiError } from '@/lib/apiError'
+import { createLiveSession, getRecruiterCandidateDetail, getRecruiterReferenceAnswer } from '@/lib/api'
+import { extractExistingLiveSessionCode, parseApiError } from '@/lib/apiError'
 import ErrorBanner from '@/app/components/ErrorBanner'
 
 interface QuestionEvidence {
@@ -100,6 +100,7 @@ export default function RecruiterCandidateDetailPage() {
   const [error, setError] = useState('')
   const [referenceAnswers, setReferenceAnswers] = useState<Record<number, { referenceAnswer: string; reviewCheckpoints: string[] }>>({})
   const [referenceLoading, setReferenceLoading] = useState<Record<number, boolean>>({})
+  const [liveSessionCreating, setLiveSessionCreating] = useState(false)
   const referenceCacheRef = useRef<Record<number, { referenceAnswer: string; reviewCheckpoints: string[] }>>({})
   const inFlightRef = useRef<Map<number, Promise<void>>>(new Map())
 
@@ -269,6 +270,31 @@ export default function RecruiterCandidateDetailPage() {
     await requestReferenceAnswer(questionNumber)
   }
 
+  const handleStartLiveSession = async () => {
+    setLiveSessionCreating(true)
+    try {
+      const response = await createLiveSession({ badgeToken: token })
+      const sessionCode = String(response.data?.sessionCode ?? '').trim()
+      if (!sessionCode) {
+        setError('Live session was created but no session code was returned.')
+        return
+      }
+      router.push(`/recruiter/live/${sessionCode}`)
+    } catch (err) {
+      const parsed = parseApiError(err, 'Could not create live session for this candidate.')
+      const existingCode = parsed.code === 'LIVE_SESSION_ALREADY_EXISTS'
+        ? extractExistingLiveSessionCode(parsed.details)
+        : null
+      if (existingCode) {
+        router.push(`/recruiter/live/${existingCode}?resumed=1`)
+        return
+      }
+      setError(parsed.message)
+    } finally {
+      setLiveSessionCreating(false)
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: 'Outfit, sans-serif', padding: '24px 24px 64px' }}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');"}</style>
@@ -277,6 +303,20 @@ export default function RecruiterCandidateDetailPage() {
         <button onClick={() => router.push('/recruiter')} style={{ marginBottom: 18, background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.65)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}>
           Back to recruiter dashboard
         </button>
+
+        <div style={{ marginBottom: 16, border: '1px solid rgba(212,255,0,0.3)', background: 'rgba(212,255,0,0.08)', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ color: '#D4FF00', fontSize: 12, fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.07em', marginBottom: 4 }}>LIVE VALIDATION</div>
+            <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13 }}>Start a recruiter-controlled live interview for this candidate.</div>
+          </div>
+          <button
+            onClick={handleStartLiveSession}
+            disabled={liveSessionCreating}
+            style={{ border: '1px solid rgba(212,255,0,0.35)', background: 'rgba(212,255,0,0.12)', color: '#D4FF00', borderRadius: 10, padding: '8px 12px', cursor: 'pointer', fontWeight: 700, opacity: liveSessionCreating ? 0.7 : 1 }}
+          >
+            {liveSessionCreating ? 'Creating...' : 'Start Live Session'}
+          </button>
+        </div>
 
         <div style={{ background: '#0A0A0A', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 18, marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
