@@ -65,62 +65,92 @@ Return this exact JSON structure:
 
 
 ANSWER_EVALUATION_PROMPT = """
-You are a senior software engineer evaluating a developer's technical interview answer.
+You are a senior software engineer evaluating a developer's answer to a code-specific interview question.
 
 QUESTION ASKED: {question_text}
 FILE REFERENCED: {file_reference}
 
-ACTUAL CODE (what the question was about):
+ACTUAL CODE (the question was about this specific code):
 {code_context}
 
 DEVELOPER'S ANSWER:
 {answer_text}
 
-Evaluate this answer on three dimensions (each 0-10):
+═══════════════════════════════════════════════════
+MANDATORY PRE-SCORING CHECKS — Run these BEFORE scoring:
+═══════════════════════════════════════════════════
 
-1. ACCURACY (0-10): Is the answer factually correct given the actual code?
-   - 9-10: Completely correct, matches the code exactly
-   - 7-8: Mostly correct with minor gaps
-   - 5-6: Partially correct, some misunderstandings
-   - 3-4: Mostly wrong but shows some awareness
-   - 0-2: Completely wrong or no understanding shown
+PRE-CHECK 1 — Word count:
+Count words in the developer's answer.
+If word count < 15: Set ALL scores to 1. Skip remaining checks. Return immediately.
 
-2. DEPTH (0-10): Does the answer go beyond surface level?
-   - 9-10: Explains WHY decisions were made, mentions trade-offs, shows senior-level thinking
-   - 7-8: Good explanation with some reasoning
-   - 5-6: Describes what but not why
-   - 3-4: Very surface level
-   - 0-2: One-liner with no explanation
+PRE-CHECK 2 — Identifier count:
+Count how many specific identifiers from the CODE CONTEXT appear in the developer's answer.
+Identifiers = function names, class names, variable names, method names,
+annotation names, file names, constant names, parameter names.
+Generic words like "function", "class", "variable", "method" do NOT count.
+Only count names that actually appear in the code above.
+Store this as IDENTIFIER_COUNT.
 
-3. SPECIFICITY (0-10): Does the answer reference actual implementation details?
-   - 9-10: References specific class names, method names, line-level decisions from the code
-   - 7-8: References some specific details
-   - 5-6: Somewhat generic but connected to the project
-   - 3-4: Could apply to any project — not specific
-   - 0-2: Completely generic answer
+PRE-CHECK 3 — Reasoning detection:
+Does the answer explain WHY a decision was made, or does it only describe WHAT exists?
+"The function returns a string" = WHAT (no reasoning)
+"The function returns a string because the API contract requires serialized output" = WHY (has reasoning)
 
-MANDATORY CHECK (non-overridable):
-- Count how many specific identifiers from ACTUAL CODE appear in the answer
-  (function names, class names, variable names, constants, file names).
-- If identifier count = 0: specificity must be 1-2.
-- If identifier count = 1: specificity must be 4 or below.
-- If identifier count >= 2: score specificity normally.
-- This rule cannot be overridden by answer length, confidence of tone, or writing quality.
+═══════════════════════════════════════════════════
+SCORING RULES — Apply in this exact order:
+═══════════════════════════════════════════════════
 
-GENERIC-ANSWER GUIDANCE:
-- Confident but generic answers that could apply to any project should score roughly:
-  - accuracy: 4-6
-  - depth: 2-4
-  - specificity: 1-3
-- Code-grounded answers that cite concrete implementation details should score in higher bands.
+RULE 1 — Specificity score (apply IDENTIFIER_COUNT caps):
+- IDENTIFIER_COUNT = 0: specificity_score = 1 or 2 (maximum 2, no exceptions)
+- IDENTIFIER_COUNT = 1: specificity_score maximum = 4
+- IDENTIFIER_COUNT = 2: specificity_score maximum = 6
+- IDENTIFIER_COUNT >= 3: score normally (1-10 based on quality)
 
-Return ONLY valid JSON. No explanation text. No markdown:
+RULE 2 — Depth score:
+- If answer has no reasoning (only WHAT, no WHY): depth_score maximum = 3
+- If answer has partial reasoning: depth_score maximum = 6
+- If answer explains trade-offs, edge cases, or design rationale: score 7-10
+
+RULE 3 — Accuracy score:
+- Score based on factual correctness against the CODE CONTEXT provided
+- If answer contradicts the actual code: accuracy_score = 1-3
+- If answer is correct but vague: accuracy_score = 4-6
+- If answer is factually precise and matches code behavior: accuracy_score = 7-10
+
+RULE 4 — Overall composite cap:
+After computing all three scores, apply this final cap:
+- If specificity_score <= 2: composite score cannot exceed 25 (regardless of other scores)
+- If specificity_score = 3-4: composite score cannot exceed 45
+- No cap applies when specificity_score >= 5
+
+═══════════════════════════════════════════════════
+EXPECTED SCORE RANGES — Use as calibration reference:
+═══════════════════════════════════════════════════
+
+Generic AI-style answer (no identifiers, no specifics):
+"This function manages the data flow and returns results to the user."
+→ Expected: accuracy=3, depth=2, specificity=1, composite=12-18
+
+Partially specific answer (1 identifier, some reasoning):
+"The searchKaggleDatasets function handles authentication for the API."
+→ Expected: accuracy=5, depth=3, specificity=3, composite=25-35
+
+Strong specific answer (3+ identifiers, explains WHY):
+"In searchKaggleDatasets(), Buffer.from() encodes the username:key pair because
+the Kaggle API requires Basic authentication headers in base64 format.
+Without this encoding, the Authorization header would be rejected."
+→ Expected: accuracy=8, depth=7, specificity=8, composite=70-80
+
+═══════════════════════════════════════════════════
+Return ONLY valid JSON. No text before or after. No markdown fences:
+═══════════════════════════════════════════════════
+
 {{
   "accuracy_score": <0-10>,
   "depth_score": <0-10>,
   "specificity_score": <0-10>,
-  "ai_feedback": "2-3 sentences explaining the score. What was good? What was missing? 
-                  Be specific — reference the actual code and the answer."
+  "ai_feedback": "2-3 sentences explaining the score. Reference actual identifiers from the code and the answer. Explain specifically what was missing or strong."
 }}
 """
 
