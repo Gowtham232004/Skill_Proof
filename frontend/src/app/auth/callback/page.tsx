@@ -8,6 +8,11 @@ function CallbackInner() {
   const params = useSearchParams()
 
   useEffect(() => {
+    if (!params) {
+      router.push('/')
+      return
+    }
+
     // Method 1: Copilot version — data passed as URL param
     const dataParam = params.get('data')
     if (dataParam) {
@@ -56,7 +61,7 @@ function CallbackInner() {
 
     // No params — redirect home
     router.push('/')
-  }, [])
+  }, [params, router])
 
   return (
     <div style={{ minHeight: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Outfit, sans-serif' }}>

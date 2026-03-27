@@ -4,7 +4,8 @@ CREATE DATABASE IF NOT EXISTS skillproof
   COLLATE utf8mb4_unicode_ci;
 
 -- Create user and grant privileges
-CREATE USER IF NOT EXISTS 'skillproof_user'@'localhost' IDENTIFIED BY 'skillproof123';
+CREATE USER IF NOT EXISTS 'skillproof_user'@'localhost' IDENTIFIED BY 'MS@6363';
+ALTER USER 'skillproof_user'@'localhost' IDENTIFIED BY 'MS@6363';
 
 -- Grant all privileges on the skillproof database
 GRANT ALL PRIVILEGES ON skillproof.* TO 'skillproof_user'@'localhost';
