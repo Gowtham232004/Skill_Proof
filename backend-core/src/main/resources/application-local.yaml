@@ -16,6 +16,13 @@ spring:
 ai-service:
   secret: ${AI_SERVICE_SECRET:dev-internal-secret-change-me}
 
+challenge:
+  docker:
+    enabled: ${CHALLENGE_DOCKER_ENABLED:false}
+    timeout-seconds: ${CHALLENGE_DOCKER_TIMEOUT_SECONDS:30}
+    memory-limit-mb: ${CHALLENGE_DOCKER_MEMORY_LIMIT_MB:256}
+    temp-dir: ${CHALLENGE_DOCKER_TEMP_DIR:.challenge-runner}
+
 phase2:
   mixed-questions-enabled: ${PHASE2_MIXED_QUESTIONS_ENABLED:false}
   total-questions: ${PHASE2_TOTAL_QUESTIONS:7}

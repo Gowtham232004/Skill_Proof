@@ -1,11 +1,4 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-	webpack: (config, { dev }) => {
-		if (dev) {
-			config.cache = false;
-		}
-		return config;
-	},
-};
+const nextConfig = {};
 
 export default nextConfig;

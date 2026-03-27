@@ -41,3 +41,16 @@ class EvaluateAnswersResponse(BaseModel):
     overall_score: int
     status: str
     error: Optional[str] = None
+
+
+class GenerateReferenceAnswerRequest(BaseModel):
+    question_text: str
+    file_reference: str
+    code_context: str
+
+
+class GenerateReferenceAnswerResponse(BaseModel):
+    reference_answer: str
+    review_checkpoints: List[str]
+    status: str
+    error: Optional[str] = None
