@@ -220,16 +220,18 @@ public class SubmitAnswersService {
 
         Integer tabSwitches = Objects.requireNonNullElse(request.getTotalTabSwitches(), 0);
         Integer pasteCount = Objects.requireNonNullElse(request.getPasteCount(), 0);
+        Integer totalCopyEvents = Objects.requireNonNullElse(request.getTotalCopyEvents(), 0);
         Integer avgAnswerSeconds = Objects.requireNonNullElse(request.getAvgAnswerSeconds(), 0);
+        boolean coachingPatternDetected = hasHighAccuracyLowDepthPattern(savedAnswers, skippedQuestionNumbers);
 
         Map<String, Integer> integrityPenaltyBreakdown = computeIntegrityPenaltyBreakdown(
             tabSwitches,
             pasteCount,
-            avgAnswerSeconds
+            totalCopyEvents,
+            avgAnswerSeconds,
+            coachingPatternDetected
         );
-        int integrityPenaltyTotal = integrityPenaltyBreakdown.values().stream()
-            .mapToInt(Integer::intValue)
-            .sum();
+        int integrityPenaltyTotal = computePenaltyTotal(integrityPenaltyBreakdown);
         int integrityAdjustedScore = Math.max(0, technicalScore - integrityPenaltyTotal);
         
         log.info("Skill scores computed: backend={}, api={}, error={}, quality={}, docs={}", 
@@ -589,7 +591,9 @@ public class SubmitAnswersService {
 
     private Map<String, Integer> computeIntegrityPenaltyBreakdown(int tabSwitches,
                                                                   int pasteCount,
-                                                                  int avgAnswerSeconds) {
+                                                                  int totalCopyEvents,
+                                                                  int avgAnswerSeconds,
+                                                                  boolean coachingPatternDetected) {
         Map<String, Integer> breakdown = new LinkedHashMap<>();
 
         int pastePenalty = Math.min(6, Math.max(0, pasteCount) * 2);
@@ -608,7 +612,16 @@ public class SubmitAnswersService {
             tabPenalty = 1;
         }
 
-        int total = pastePenalty + speedPenalty + tabPenalty;
+        int copyPenalty = 0;
+        if (totalCopyEvents >= 3) {
+            copyPenalty = 3;
+        } else if (totalCopyEvents > 0) {
+            copyPenalty = 1;
+        }
+
+        int coachingPatternPenalty = coachingPatternDetected ? 2 : 0;
+
+        int total = pastePenalty + speedPenalty + tabPenalty + copyPenalty + coachingPatternPenalty;
         if (total > 10) {
             int overflow = total - 10;
             if (tabPenalty >= overflow) {
@@ -616,17 +629,62 @@ public class SubmitAnswersService {
             } else if (speedPenalty >= overflow - tabPenalty) {
                 speedPenalty -= (overflow - tabPenalty);
                 tabPenalty = 0;
+            } else if (copyPenalty >= overflow - tabPenalty - speedPenalty) {
+                copyPenalty -= (overflow - tabPenalty - speedPenalty);
+                tabPenalty = 0;
+                speedPenalty = 0;
+            } else if (coachingPatternPenalty >= overflow - tabPenalty - speedPenalty - copyPenalty) {
+                coachingPatternPenalty -= (overflow - tabPenalty - speedPenalty - copyPenalty);
+                tabPenalty = 0;
+                speedPenalty = 0;
+                copyPenalty = 0;
             } else {
-                pastePenalty = Math.max(0, pastePenalty - (overflow - tabPenalty - speedPenalty));
+                pastePenalty = Math.max(0, pastePenalty - (overflow - tabPenalty - speedPenalty - copyPenalty - coachingPatternPenalty));
                 speedPenalty = 0;
                 tabPenalty = 0;
+                copyPenalty = 0;
+                coachingPatternPenalty = 0;
             }
         }
 
         breakdown.put("pastePenalty", pastePenalty);
         breakdown.put("speedPenalty", speedPenalty);
         breakdown.put("tabSwitchPenalty", tabPenalty);
+        breakdown.put("copyPenalty", copyPenalty);
+        breakdown.put("coachingPatternPenalty", coachingPatternPenalty);
+        breakdown.put("copyEvents", Math.max(0, totalCopyEvents));
+        breakdown.put("coachingPatternDetected", coachingPatternDetected ? 1 : 0);
         return breakdown;
+    }
+
+    private int computePenaltyTotal(Map<String, Integer> integrityPenaltyBreakdown) {
+        return integrityPenaltyBreakdown.entrySet().stream()
+            .filter(entry -> entry.getKey().endsWith("Penalty"))
+            .map(Map.Entry::getValue)
+            .filter(Objects::nonNull)
+            .mapToInt(Integer::intValue)
+            .sum();
+    }
+
+    private boolean hasHighAccuracyLowDepthPattern(List<Answer> answers,
+                                                   Set<Integer> skippedQuestionNumbers) {
+        int suspiciousCount = 0;
+        for (Answer answer : answers) {
+            if (answer.getQuestion() == null) {
+                continue;
+            }
+            if (skippedQuestionNumbers.contains(answer.getQuestion().getQuestionNumber())) {
+                continue;
+            }
+
+            int accuracy = Objects.requireNonNullElse(answer.getAccuracyScore(), 0);
+            int depth = Objects.requireNonNullElse(answer.getDepthScore(), 0);
+            if (accuracy >= 8 && depth <= 3) {
+                suspiciousCount++;
+            }
+        }
+
+        return suspiciousCount >= 2;
     }
 
     private Map<String, Integer> computeScoreByQuestionType(List<Answer> answers) {

@@ -28,6 +28,10 @@ interface BadgeData {
     pastePenalty?: number
     speedPenalty?: number
     tabSwitchPenalty?: number
+    copyPenalty?: number
+    coachingPatternPenalty?: number
+    copyEvents?: number
+    coachingPatternDetected?: number
   }
   scoreByQuestionType?: Record<string, number>
   weightedScoringEnabled?: boolean
@@ -123,6 +127,11 @@ export default function BadgePage() {
   const codeScore = badge?.scoreByQuestionType?.CODE_GROUNDED ?? 0
   const conceptScore = badge?.scoreByQuestionType?.CONCEPTUAL ?? 0
   const conceptGap = codeScore - conceptScore
+  const copyEvents = badge?.integrityPenaltyBreakdown?.copyEvents ?? 0
+  const copyPenalty = badge?.integrityPenaltyBreakdown?.copyPenalty ?? 0
+  const coachingPatternPenalty = badge?.integrityPenaltyBreakdown?.coachingPatternPenalty ?? 0
+  const coachingPatternDetected = (badge?.integrityPenaltyBreakdown?.coachingPatternDetected ?? 0) > 0
+  const integrityRiskFlag = copyEvents > 0 || copyPenalty > 0 || coachingPatternPenalty > 0 || coachingPatternDetected
   const confidenceColor = badge?.confidenceTier === 'High'
     ? '#34D399'
     : badge?.confidenceTier === 'Medium'
@@ -335,7 +344,7 @@ export default function BadgePage() {
 
             {/* Verification metadata */}
             <div style={{ padding: '14px 16px', background: 'rgba(212,255,0,0.04)', border: '1px solid rgba(212,255,0,0.12)', borderRadius: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
                 {[
                   { label: 'Badge Token', value: badge.verificationToken.substring(0, 20) + '...' },
                   { label: 'Algorithm', value: 'HMAC-SHA256' },
@@ -355,7 +364,7 @@ export default function BadgePage() {
               <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(96,165,250,0.85)', marginBottom: 8, letterSpacing: '0.08em' }}>
                 INTEGRITY SIGNALS
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Tab switches</div>
                   <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.tabSwitches ?? 0}</div>
@@ -365,11 +374,28 @@ export default function BadgePage() {
                   <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.pasteCount ?? 0}</div>
                 </div>
                 <div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Copy events</div>
+                  <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{copyEvents}</div>
+                </div>
+                <div>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Avg answer time</div>
                   <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.avgAnswerSeconds ?? 0}s</div>
                 </div>
               </div>
             </div>
+
+            {integrityRiskFlag && (
+              <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.24)', borderRadius: 12 }}>
+                <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(248,113,113,0.9)', marginBottom: 8, letterSpacing: '0.08em' }}>
+                  INTEGRITY ALERT
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.68)', lineHeight: 1.6 }}>
+                  {copyEvents > 0 && `Question/context copy activity detected (${copyEvents}). `}
+                  {coachingPatternDetected && 'Answer pattern shows high-accuracy but shallow-depth responses across multiple questions. '}
+                  Recruiters should require a live explanation before making a decision.
+                </div>
+              </div>
+            )}
 
             {!!badge.scoreByQuestionType && (
               <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 12 }}>
@@ -436,7 +462,7 @@ export default function BadgePage() {
               </div>
               {badge.integrityPenaltyBreakdown && (
                 <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.52)', fontFamily: 'JetBrains Mono, monospace' }}>
-                  paste {badge.integrityPenaltyBreakdown.pastePenalty ?? 0} · speed {badge.integrityPenaltyBreakdown.speedPenalty ?? 0} · tab {badge.integrityPenaltyBreakdown.tabSwitchPenalty ?? 0}
+                  paste {badge.integrityPenaltyBreakdown.pastePenalty ?? 0} · copy {badge.integrityPenaltyBreakdown.copyPenalty ?? 0} · speed {badge.integrityPenaltyBreakdown.speedPenalty ?? 0} · tab {badge.integrityPenaltyBreakdown.tabSwitchPenalty ?? 0} · pattern {badge.integrityPenaltyBreakdown.coachingPatternPenalty ?? 0}
                 </div>
               )}
               {badge.confidenceExplanation && (
@@ -445,7 +471,7 @@ export default function BadgePage() {
                 </p>
               )}
               <p style={{ marginTop: 10, marginBottom: 0, color: 'rgba(255,255,255,0.52)', fontSize: 12, lineHeight: 1.5, fontFamily: 'JetBrains Mono, monospace' }}>
-                Scoring mode: {badge.weightedScoringEnabled ? 'weighted' : 'equal'} ({badge.codeWeightPercent ?? 60}% code · {badge.conceptualWeightPercent ?? 40}% concept)
+                Scoring mode: {badge.weightedScoringEnabled ? 'weighted' : 'equal'} {badge.weightedScoringEnabled ? `(${badge.codeWeightPercent ?? 60}% code · ${badge.conceptualWeightPercent ?? 40}% concept)` : '(per-question average)'}
               </p>
             </div>
 

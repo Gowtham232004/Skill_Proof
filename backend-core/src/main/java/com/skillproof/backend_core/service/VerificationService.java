@@ -58,8 +58,8 @@ public class VerificationService {
     @Value("${phase2.conceptual-questions:0}")
     private int phase2ConceptualQuestions;
 
-    // Free plan limit
-    private static final int FREE_MONTHLY_LIMIT = 3;
+    // Free plan limit (raised for current testing/submission cycle)
+    private static final int FREE_MONTHLY_LIMIT = 30;
     private static final long REPO_COOLDOWN_HOURS = 24;
     private static final int MAX_SNIPPET_LINES = 15;
     private static final int MAX_SNIPPET_CHARS = 1800;

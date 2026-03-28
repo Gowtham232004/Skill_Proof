@@ -45,6 +45,13 @@ ai-service:
   url: http://localhost:8000
   secret: ${AI_SERVICE_SECRET}
 
+challenge:
+  docker:
+    enabled: ${CHALLENGE_DOCKER_ENABLED:false}
+    timeout-seconds: ${CHALLENGE_DOCKER_TIMEOUT_SECONDS:30}
+    memory-limit-mb: ${CHALLENGE_DOCKER_MEMORY_LIMIT_MB:256}
+    temp-dir: ${CHALLENGE_DOCKER_TEMP_DIR:.challenge-runner}
+
 phase2:
   mixed-questions-enabled: false
   total-questions: 7
@@ -55,7 +62,7 @@ phase2:
 
 # Test/Development mode — bypass limits
 testing:
-  bypass-verification-limit: false
+  bypass-verification-limit: true
   skip-repo-cooldown: false
 
 # CORS — allow Next.js frontend

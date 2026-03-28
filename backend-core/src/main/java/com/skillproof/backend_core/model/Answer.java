@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -54,4 +55,14 @@ public class Answer {
     // AI explanation of why this score was given
     @Column(name = "ai_feedback", columnDefinition = "TEXT")
     private String aiFeedback;
+
+    // Cached recruiter-facing AI reference answer (generated on first request)
+    @Column(name = "reference_answer", columnDefinition = "TEXT")
+    private String referenceAnswer;
+
+    @Column(name = "review_checkpoints_json", columnDefinition = "TEXT")
+    private String reviewCheckpointsJson;
+
+    @Column(name = "reference_answer_generated_at")
+    private LocalDateTime referenceAnswerGeneratedAt;
 }

@@ -28,6 +28,9 @@ public class SubmitAnswersRequest {
     @JsonProperty("pasteCount")
     private Integer pasteCount;
 
+    @JsonProperty("totalCopyEvents")
+    private Integer totalCopyEvents;
+
     @JsonProperty("avgAnswerSeconds")
     private Integer avgAnswerSeconds;
 

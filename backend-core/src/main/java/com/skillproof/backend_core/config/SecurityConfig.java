@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -48,10 +49,14 @@ public class SecurityConfig {
                     "/api/auth/github",       // Get GitHub auth URL
                     "/api/auth/github/callback", // OAuth callback
                     "/api/badge/**",          // Public badge pages
+                    "/api/live/*/status",     // Public live session status
+                    "/api/live/*/questions/*", // Candidate question fetch (no code context)
+                    "/api/live/*/questions/*/answer", // Candidate answer submit
                     "/actuator/health",       // Health check
                     "/swagger-ui/**",         // API docs
                     "/v3/api-docs/**"
                 ).permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/challenges/*").permitAll()
                 // Everything else needs a valid JWT
                 .anyRequest().authenticated()
             )

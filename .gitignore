@@ -59,6 +59,17 @@ out/
 
 # Frontend (has its own repo)
 frontend/
+!frontend/
+frontend/*
+!frontend/src/
+frontend/src/*
+!frontend/src/app/
+frontend/src/app/*
+!frontend/src/app/recruiter/
+frontend/src/app/recruiter/*
+!frontend/src/app/recruiter/[[]token[]]/
+frontend/src/app/recruiter/[[]token[]]/*
+!frontend/src/app/recruiter/[[]token[]]/page.tsx
 
 # Sensitive files with hardcoded secrets
 generate_token.py

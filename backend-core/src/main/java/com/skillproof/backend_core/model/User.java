@@ -46,7 +46,7 @@ public class User {
     @Builder.Default
     private Plan plan = Plan.FREE;
 
-    // how many verifications used this month (free tier limit = 3)
+    // how many verifications used this month (free tier limit = 30)
     @Column(name = "monthly_verifications_used")
     @Builder.Default
     private Integer monthlyVerificationsUsed = 0;
@@ -72,7 +72,7 @@ public class User {
     }
 
     public enum Plan {
-        FREE,       // 3 verifications/month
+        FREE,       // 30 verifications/month
         PRO,        // unlimited
         ENTERPRISE  // API access + batch
     }
