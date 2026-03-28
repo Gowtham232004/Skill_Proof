@@ -86,13 +86,19 @@ const getSkillScore = (badge: BadgeData, key: (typeof SKILLS)[number]['key']) =>
 export default function BadgePage() {
   const params = useParams()
   const router = useRouter()
-  const token = params.token as string
+  const token = typeof params?.token === 'string' ? params.token : ''
   const [badge, setBadge] = useState<BadgeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
+    if (!token) {
+      setLoadError('Badge token is missing.')
+      setLoading(false)
+      return
+    }
+
     getBadge(token)
       .then(res => {
         setBadge(res.data)
