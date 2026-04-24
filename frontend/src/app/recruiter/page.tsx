@@ -6,6 +6,7 @@ import { api, createLiveSession } from '@/lib/api'
 import { extractExistingLiveSessionCode, parseApiError } from '@/lib/apiError'
 import ErrorBanner from '@/app/components/ErrorBanner'
 import InfoBanner from '@/app/components/InfoBanner'
+import NotificationBell from '@/components/NotificationBell'
 
 interface Candidate {
   sessionId: number
@@ -31,6 +32,8 @@ interface Candidate {
   tabSwitches?: number
   pasteCount?: number
   avgAnswerSeconds?: number
+  recruiterDecisionStatus?: 'VERIFIED' | 'NEEDS_LIVE_INTERVIEW' | 'REJECT' | 'PENDING'
+  recruiterDecisionAt?: string | null
   badgeToken: string
   issuedAt: string
   primaryLanguage: string
@@ -272,7 +275,12 @@ export default function RecruiterPage() {
           <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: '#D4FF00', fontWeight: 600, letterSpacing: '0.1em' }}>RECRUITER DASHBOARD</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <NotificationBell />
           {user && <span style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(255,255,255,0.35)' }}>@{user.githubUsername}</span>}
+          <motion.button whileHover={{ scale: 1.02 }} onClick={() => router.push('/recruiter/compare')}
+            style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: 'rgba(255,255,255,0.82)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            Compare Candidates
+          </motion.button>
           <motion.button whileHover={{ scale: 1.02 }} onClick={() => router.push('/challenge/create')}
             style={{ padding: '8px 16px', background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.35)', borderRadius: 8, color: '#BFDBFE', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
             + Create Challenge
@@ -425,6 +433,11 @@ export default function RecruiterPage() {
                                   Follow-up {c.followUpAnsweredCount ?? 0}/{c.followUpRequiredCount}
                                 </span>
                               )}
+                              {c.recruiterDecisionStatus && (
+                                <span style={{ marginLeft: 6, padding: '2px 7px', borderRadius: 999, border: '1px solid rgba(52,211,153,0.5)', background: 'rgba(52,211,153,0.14)', color: '#34D399', fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+                                  {c.recruiterDecisionStatus}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -549,6 +562,7 @@ export default function RecruiterPage() {
                     <div>Tab switches: {selected.tabSwitches ?? 0}</div>
                     <div>Paste count: {selected.pasteCount ?? 0}</div>
                     <div>Avg answer time: {selected.avgAnswerSeconds ?? 0}s</div>
+                    <div>Decision: {selected.recruiterDecisionStatus ?? 'PENDING'}</div>
                   </div>
                 </div>
 
