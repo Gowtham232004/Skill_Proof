@@ -23,6 +23,7 @@ interface BadgeData {
   overallScore: number
   technicalScore?: number
   integrityAdjustedScore?: number
+  executionAdjustedScore?: number
   integrityPenaltyTotal?: number
   integrityPenaltyBreakdown?: {
     pastePenalty?: number
@@ -32,6 +33,19 @@ interface BadgeData {
     coachingPatternPenalty?: number
     copyEvents?: number
     coachingPatternDetected?: number
+  }
+  executionBackedSignal?: {
+    totalAttempts: number
+    passedCount: number
+    failedCount: number
+    errorCount: number
+    timeoutCount: number
+    passRatePercent: number
+    avgExecutionScore: number
+    latestStatus: string
+    executionPenalty: number
+    executionAdjustedScore: number
+    signalLevel: 'NO_SIGNAL' | 'LOW_RISK' | 'MEDIUM_RISK' | 'HIGH_RISK'
   }
   scoreByQuestionType?: Record<string, number>
   weightedScoringEnabled?: boolean
@@ -118,6 +132,8 @@ export default function BadgePage() {
 
   const technicalScore = badge?.technicalScore ?? badge?.overallScore ?? 0
   const adjustedScore = badge?.integrityAdjustedScore ?? badge?.overallScore ?? 0
+  const executionAdjustedScore = badge?.executionAdjustedScore ?? adjustedScore
+  const executionSignal = badge?.executionBackedSignal
   const codeScore = badge?.scoreByQuestionType?.CODE_GROUNDED ?? 0
   const conceptScore = badge?.scoreByQuestionType?.CONCEPTUAL ?? 0
   const conceptGap = codeScore - conceptScore
@@ -238,6 +254,9 @@ export default function BadgePage() {
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>integrity-adjusted score</div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 4, fontFamily: 'JetBrains Mono, monospace' }}>
                   technical {technicalScore} · penalty -{badge.integrityPenaltyTotal ?? 0}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(96,165,250,0.8)', marginTop: 3, fontFamily: 'JetBrains Mono, monospace' }}>
+                  execution-adjusted {executionAdjustedScore}
                 </div>
               </div>
             </div>
@@ -376,6 +395,44 @@ export default function BadgePage() {
                   <div style={{ fontSize: 14, color: '#60A5FA', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{badge.avgAnswerSeconds ?? 0}s</div>
                 </div>
               </div>
+            </div>
+
+            <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.22)', borderRadius: 12 }}>
+              <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'rgba(110,231,183,0.9)', marginBottom: 8, letterSpacing: '0.08em' }}>
+                EXECUTION-BACKED EVIDENCE
+              </div>
+              {executionSignal && executionSignal.totalAttempts > 0 ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Attempts</div>
+                      <div style={{ fontSize: 14, color: '#6EE7B7', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{executionSignal.totalAttempts}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Pass rate</div>
+                      <div style={{ fontSize: 14, color: '#6EE7B7', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{executionSignal.passRatePercent}%</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Latest status</div>
+                      <div style={{ fontSize: 14, color: '#6EE7B7', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{executionSignal.latestStatus}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Risk level</div>
+                      <div style={{ fontSize: 14, color: '#6EE7B7', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{executionSignal.signalLevel}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.56)', fontFamily: 'JetBrains Mono, monospace' }}>
+                    pass {executionSignal.passedCount} · fail {executionSignal.failedCount} · error {executionSignal.errorCount} · timeout {executionSignal.timeoutCount}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: 'rgba(255,255,255,0.56)', fontFamily: 'JetBrains Mono, monospace' }}>
+                    execution penalty -{executionSignal.executionPenalty} · adjusted with execution {executionAdjustedScore}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+                  No recent coding-challenge submissions available. This badge currently reflects repository Q/A evidence and integrity telemetry only.
+                </div>
+              )}
             </div>
 
             {integrityRiskFlag && (
