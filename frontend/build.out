@@ -1,0 +1,50 @@
+
+> frontend@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+./src/app/auth/callback/page.tsx
+59:6  Warning: React Hook useEffect has missing dependencies: 'params' and 'router'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/badge/[token]/page.tsx
+208:19  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/page.tsx
+297:6  Warning: React Hook useEffect has missing dependencies: 'mouseX' and 'mouseY'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/recruiter/page.tsx
+94:6  Warning: React Hook useEffect has a missing dependency: 'router'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/verify/page.tsx
+251:6  Warning: React Hook useEffect has missing dependencies: 'STAGES', 'onDone', and 'repo.name'. Either include them or remove the dependency array. If 'onDone' changes too often, find the parent component that defines it and wrap that definition in useCallback.  react-hooks/exhaustive-deps
+801:6  Warning: React Hook useEffect has a missing dependency: 'router'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+855:13  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules
+Failed to compile.
+
+./src/app/page.tsx:295:42
+Type error: No overload matches this call.
+  Overload 1 of 2, '(type: "mousemove", listener: (this: Window, ev: MouseEvent) => any, options?: boolean | AddEventListenerOptions | undefined): void', gave the following error.
+    Argument of type '(e: MouseEvent) => void' is not assignable to parameter of type '(this: Window, ev: MouseEvent) => any'.
+      Types of parameters 'e' and 'ev' are incompatible.
+        Type 'MouseEvent' is missing the following properties from type 'MouseEvent<Element, MouseEvent>': nativeEvent, isDefaultPrevented, isPropagationStopped, persist
+  Overload 2 of 2, '(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions | undefined): void', gave the following error.
+    Argument of type '(e: MouseEvent) => void' is not assignable to parameter of type 'EventListenerOrEventListenerObject'.
+      Type '(e: MouseEvent) => void' is not assignable to type 'EventListener'.
+        Types of parameters 'e' and 'evt' are incompatible.
+          Type 'Event' is missing the following properties from type 'MouseEvent<Element, MouseEvent>': altKey, button, buttons, clientX, and 18 more.
+
+[0m [90m 293 |[39m     [36mconst[39m onMouse [33m=[39m (e[33m:[39m [33mMouseEvent[39m) [33m=>[39m { mouseX[33m.[39m[36mset[39m(e[33m.[39mclientX)[33m;[39m mouseY[33m.[39m[36mset[39m(e[33m.[39mclientY) }[0m
+[0m [90m 294 |[39m     window[33m.[39maddEventListener([32m'scroll'[39m[33m,[39m onScroll)[0m
+[0m[31m[1m>[22m[39m[90m 295 |[39m     window[33m.[39maddEventListener([32m'mousemove'[39m[33m,[39m onMouse)[0m
+[0m [90m     |[39m                                          [31m[1m^[22m[39m[0m
+[0m [90m 296 |[39m     [36mreturn[39m () [33m=>[39m { window[33m.[39mremoveEventListener([32m'scroll'[39m[33m,[39m onScroll)[33m;[39m window[33m.[39mremoveEventListener([32m'mousemove'[39m[33m,[39m onMouse) }[0m
+[0m [90m 297 |[39m   }[33m,[39m [])[0m
+[0m [90m 298 |[39m[0m
+Next.js build worker exited with code: 1 and signal: null
