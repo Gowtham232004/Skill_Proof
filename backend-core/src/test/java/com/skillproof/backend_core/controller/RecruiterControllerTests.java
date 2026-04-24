@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 
+import com.skillproof.backend_core.dto.request.CompareCandidatesRequest;
 import com.skillproof.backend_core.dto.response.BadgeResponse;
 import com.skillproof.backend_core.model.Badge;
 import com.skillproof.backend_core.model.User;
@@ -104,7 +105,7 @@ class RecruiterControllerTests {
 
         when(authentication.getPrincipal()).thenReturn(1L);
         when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(recruiter));
-        when(badgeRepository.findAll()).thenReturn(List.of(badge));
+        when(badgeRepository.findAllActiveWithUserAndSession()).thenReturn(List.of(badge));
         when(badgeService.getBadgeByToken("token_1")).thenReturn(detail);
 
         ResponseEntity<List<Map<String, Object>>> response = controller.getCandidates(authentication);
@@ -122,5 +123,62 @@ class RecruiterControllerTests {
         assertEquals(40, row.get("conceptualWeightPercent"));
         assertEquals(2, row.get("followUpRequiredCount"));
         assertEquals(1, row.get("followUpAnsweredCount"));
+    }
+
+    @Test
+    void compareCandidatesReturnsUniqueListAndTopCandidate() {
+        RecruiterController controller = new RecruiterController(
+            badgeRepository,
+            answerRepository,
+            userRepository,
+            badgeService,
+            aiGatewayService,
+            new ObjectMapper()
+        );
+
+        User recruiter = User.builder()
+            .id(1L)
+            .githubUsername("recruiter")
+            .role(User.Role.RECRUITER)
+            .build();
+
+        when(authentication.getPrincipal()).thenReturn(1L);
+        when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(recruiter));
+
+        BadgeResponse first = BadgeResponse.builder()
+            .valid(true)
+            .verificationToken("tok_a")
+            .githubUsername("cand-a")
+            .displayName("Candidate A")
+            .repoName("repo-a")
+            .overallScore(80)
+            .technicalScore(82)
+            .integrityAdjustedScore(78)
+            .executionAdjustedScore(79)
+            .build();
+
+        BadgeResponse second = BadgeResponse.builder()
+            .valid(true)
+            .verificationToken("tok_b")
+            .githubUsername("cand-b")
+            .displayName("Candidate B")
+            .repoName("repo-b")
+            .overallScore(86)
+            .technicalScore(88)
+            .integrityAdjustedScore(84)
+            .executionAdjustedScore(90)
+            .build();
+
+        when(badgeService.getBadgeByTokenForRecruiter("tok_a")).thenReturn(first);
+        when(badgeService.getBadgeByTokenForRecruiter("tok_b")).thenReturn(second);
+
+        CompareCandidatesRequest request = new CompareCandidatesRequest();
+        request.setBadgeTokens(List.of(" tok_a ", "tok_b", "tok_a", ""));
+
+        ResponseEntity<Map<String, Object>> response = controller.compareCandidates(request, authentication);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(2, response.getBody().get("comparedCount"));
+        assertEquals("tok_b", response.getBody().get("topCandidateToken"));
     }
 }
