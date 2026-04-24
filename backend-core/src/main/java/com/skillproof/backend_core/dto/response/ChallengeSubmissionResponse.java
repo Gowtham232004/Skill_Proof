@@ -30,6 +30,7 @@ public class ChallengeSubmissionResponse {
         private Integer caseNumber;
         private String name;
         private String status;
+        private Boolean isVisible;
         private String expectedOutput;
         private String actualOutput;
         private String errorMessage;

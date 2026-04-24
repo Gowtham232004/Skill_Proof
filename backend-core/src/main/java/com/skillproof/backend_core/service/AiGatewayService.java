@@ -302,6 +302,137 @@ public class AiGatewayService {
         }
     }
 
+    public String generateSnippetQuestion(String codeSnippet, String fileReference, String language) {
+        try {
+            Map<String, Object> request = new HashMap<>();
+            request.put("code_snippet", codeSnippet != null ? codeSnippet : "");
+            request.put("file_reference", fileReference != null ? fileReference : "");
+            request.put("language", language != null ? language : "Unknown");
+
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            String url = aiServiceUrl + "/internal/generate-snippet-question";
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                return null;
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(response, Map.class);
+            Object question = parsed.get("question");
+            if (question == null) {
+                return null;
+            }
+
+            String output = String.valueOf(question).trim();
+            return output.isEmpty() ? null : output;
+        } catch (RestClientException | JsonProcessingException ex) {
+            log.error("Snippet question generation failed", ex);
+            return null;
+        }
+    }
+
+    public Map<String, Object> generateCodeBug(String codeContext,
+                                               String fileReference,
+                                               String language) {
+        try {
+            Map<String, Object> request = new HashMap<>();
+            request.put("code_context", codeContext != null ? codeContext : "");
+            request.put("file_reference", fileReference != null ? fileReference : "");
+            request.put("language", language != null ? language : "JAVA");
+
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            String url = aiServiceUrl + "/internal/generate-code-bug";
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                return new HashMap<>();
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(response, Map.class);
+            return parsed;
+        } catch (RestClientException | JsonProcessingException ex) {
+            log.error("Code bug generation failed", ex);
+            return new HashMap<>();
+        }
+    }
+
+    public Map<String, Object> generateRepoChallengeFromCode(String codeContext,
+                                                              String fileReference,
+                                                              String language,
+                                                              String challengeType) {
+        try {
+            Map<String, Object> request = new HashMap<>();
+            request.put("code_context", codeContext != null ? codeContext : "");
+            request.put("file_reference", fileReference != null ? fileReference : "");
+            request.put("language", language != null ? language : "python");
+            request.put("challenge_type", challengeType != null ? challengeType : "REPO_BUG_FIX");
+            request.put("variation_seed", System.currentTimeMillis());
+
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            String url = aiServiceUrl + "/internal/generate-repo-challenge";
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                return Map.of();
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(response, Map.class);
+            return parsed == null ? Map.of() : parsed;
+        } catch (RestClientException | JsonProcessingException ex) {
+            log.error("Repo challenge generation failed", ex);
+            return Map.of();
+        }
+    }
+
+    public Map<String, Object> evaluatePrReview(String originalCode,
+                                                String modifiedCode,
+                                                String bugDescription,
+                                                String candidateComments) {
+        try {
+            Map<String, Object> request = new HashMap<>();
+            request.put("original_code", originalCode != null ? originalCode : "");
+            request.put("modified_code", modifiedCode != null ? modifiedCode : "");
+            request.put("bug_description", bugDescription != null ? bugDescription : "");
+            request.put("candidate_comments", candidateComments != null ? candidateComments : "");
+
+            String requestBody = objectMapper.writeValueAsString(request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", aiServiceSecret);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            String url = aiServiceUrl + "/internal/evaluate-pr-review";
+            String response = restTemplate.postForObject(url, entity, String.class);
+            if (response == null || response.isBlank()) {
+                return Map.of("score", 0, "bugs_identified", 0, "feedback", "Evaluation unavailable");
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(response, Map.class);
+            return parsed == null
+                ? Map.of("score", 0, "bugs_identified", 0, "feedback", "Evaluation unavailable")
+                : parsed;
+        } catch (RestClientException | JsonProcessingException ex) {
+            log.error("PR review evaluation failed", ex);
+            return Map.of("score", 0, "bugs_identified", 0, "feedback", "Evaluation failed");
+        }
+    }
+
     public List<Question> generateQuestionsViaAI(VerificationSession session,
                                                    String codeSummary,
                                                    String primaryLanguage,

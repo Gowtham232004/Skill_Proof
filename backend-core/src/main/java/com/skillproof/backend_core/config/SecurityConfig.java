@@ -57,6 +57,10 @@ public class SecurityConfig {
                     "/v3/api-docs/**"
                 ).permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/challenges/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/quick-challenge/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/quick-challenge/*/submit").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/pr-review/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/pr-review/*/submit").permitAll()
                 // Everything else needs a valid JWT
                 .anyRequest().authenticated()
             )

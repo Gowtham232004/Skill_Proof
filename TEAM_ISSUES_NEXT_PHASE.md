@@ -1,52 +1,115 @@
 # Team Issues - Next Phase Backlog
 
-## Done in this patch
-- Recruiter detail now has a manual review Evidence Panel with collapsed accordion cards for each question.
-- Each evidence card includes question text, file reference, first 15 lines of code context, developer answer text, AI feedback, and score pills (accuracy/depth/specificity).
-- Verification flow copy telemetry is stronger by counting both clipboard copy/cut events and keyboard copy shortcut usage outside input fields.
+Date: 2026-04-24
 
-## Issue 1: Add execution-based verification signal (high priority)
+## Delivery Strategy
+
+1. Keep current skill folder stable for demos and evaluations.
+2. Build new direction in separate skill2 copy.
+3. Use feature flags so existing workflows never break.
+
+## Current Status Snapshot
+
+Implemented now:
+1. Verification pipeline and badge issuance.
+2. Integrity and confidence signals.
+3. Recruiter dashboard and evidence panel.
+4. Live session flows.
+5. Quick challenge and PR review challenge.
+6. Video room link generation.
+7. Manual and repo-grounded coding challenges with Docker evaluation.
+
+Known pain points:
+1. Randomized question trust concerns from panel feedback.
+2. Live session troubleshooting still needed in some runs.
+3. Need clearer unique value versus separate tools.
+
+## Priority Backlog for Skill2
+
+## Issue 1: Scenario-Centered Evaluation Engine (highest)
 Problem:
-- Current trust signals are mostly behavioral text signals (tab, paste, copy, timing).
-- Recruiters still lack proof that a candidate can execute and debug code under constraints.
+Current flows can feel feature-fragmented and random-question heavy.
 
 Scope:
-- Add optional mini execution tasks for selected questions.
-- Candidate submits code output or test result from a controlled prompt.
-- Store execution outcome and pass/fail metadata in badge evidence.
+1. Introduce Scenario as first-class object.
+2. Support safe context modes:
+   - PUBLIC_REPO
+   - SNIPPET
+   - SYNTHETIC
+   - JD_ONLY
+3. Make quick challenge, PR review, live tasks, and report consume same scenario.
 
 Acceptance criteria:
-- Recruiter can see execution status per question (pass/fail/timeout/error).
-- At least one execution-backed signal is included in integrity scoring.
-- Badge/recruiter UI clearly labels execution-backed evidence separately from text scoring.
+1. One scenario id links all downstream tasks and scores.
+2. No-repo case works without crash.
+3. Existing legacy flow still works with feature flag off.
 
-## Issue 2: Hardening against same-tab assistant usage (medium priority)
+## Issue 2: Deterministic Evaluation Overlay (highest)
 Problem:
-- Extension/second-screen/phone help is still hard to detect reliably in browser-only mode.
+Pure open-text AI scoring is difficult to defend under harsh viva questioning.
 
 Scope:
-- Add lightweight risk heuristics:
-  - large instant answer jumps (possible assistant insertion)
-  - long idle + sudden high-quality completion
-  - repeated low-depth/high-accuracy response pattern
-- Route these to an "assist-likelihood" indicator, not a hard fail.
+1. Persist expected answer keys per generated task.
+2. Add deterministic checks for concept coverage and identifier references.
+3. Keep LLM rubric as bounded component, not sole judge.
 
 Acceptance criteria:
-- Recruiter page shows assist-likelihood level with explanation.
-- Integrity penalty logic treats this as advisory, not deterministic cheating proof.
-- False positives are minimized and documented.
+1. Score response includes explainable factor breakdown.
+2. Generic answers are consistently capped.
+3. Policy version appears in results for traceability.
 
-## Issue 3: Recruiter manual rubric actions (medium priority)
+## Issue 3: Live Proof Workspace (high)
 Problem:
-- Recruiter sees AI scoring but cannot add final human decision context in-system.
+Video and coding currently feel like separate experiences.
 
 Scope:
-- Add recruiter actions per candidate:
-  - Mark answer set as Verified / Needs Live Interview / Reject
-  - Add notes and decision reason
-  - Export review summary
+1. Integrate video + shared editor + run output in one recruiter-candidate session view.
+2. Persist event timeline for audit.
+3. Add deterministic run checks where possible.
 
 Acceptance criteria:
-- Recruiter decision status is stored and visible in dashboard list.
-- Decision notes are audit-tracked with reviewer and timestamp.
-- Export includes question evidence, AI feedback, and recruiter decision.
+1. Recruiter can watch edits in near real-time.
+2. Run outcomes are visible to both sides.
+3. Session report includes code-run evidence trace.
+
+## Issue 4: Pre-Interview Intelligence (high)
+Problem:
+Recruiters need a pre-filter signal before deeper assessment.
+
+Scope:
+1. Resume + GitHub + JD fit analysis report.
+2. Explainable authenticity and fit scores.
+3. Recruiter actions: Proceed, Manual Review, Reject.
+
+Acceptance criteria:
+1. No hard candidate auto-blocking.
+2. Missing GitHub handled as limited evidence, not auto-fail.
+3. Recruiter sees score reasons, not black-box output.
+
+## Issue 5: Live Session Reliability Hardening (medium)
+Problem:
+Some demo runs report live session start or answer loading inconsistencies.
+
+Scope:
+1. Add stronger endpoint logging and correlation ids.
+2. Improve API error propagation to UI.
+3. Add pre-demo health checks in one script.
+
+Acceptance criteria:
+1. Failures are diagnosable within 5 minutes.
+2. Frontend shows actionable error messages.
+3. Repro checklist exists and is documented.
+
+## Issue 6: Trust Signal Calibration (medium)
+Problem:
+Assist-likelihood heuristics can create false positives without calibration.
+
+Scope:
+1. Add benchmark answer sets.
+2. Track false positive and false negative outcomes.
+3. Adjust thresholds with versioned policy notes.
+
+Acceptance criteria:
+1. Calibration report documented per iteration.
+2. Recruiter can see indicator explanation text.
+3. Policy changes are auditable over time.

@@ -64,6 +64,10 @@
 </dependency>
 <dependency>
 <groupId>org.springframework.boot</groupId>
+<artifactId>spring-boot-starter-mail</artifactId>
+</dependency>
+<dependency>
+<groupId>org.springframework.boot</groupId>
 <artifactId>spring-boot-devtools</artifactId>
 <scope>runtime</scope>
 <optional>true</optional>
@@ -104,6 +108,16 @@
 <groupId>org.kohsuke</groupId>
 <artifactId>github-api</artifactId>
 <version>1.314</version>
+</dependency>
+<dependency>
+<groupId>org.apache.httpcomponents.client5</groupId>
+<artifactId>httpclient5</artifactId>
+<version>5.3.1</version>
+</dependency>
+<dependency>
+<groupId>org.apache.httpcomponents.core5</groupId>
+<artifactId>httpcore5</artifactId>
+<version>5.3.1</version>
 </dependency>
 <dependency>
 <groupId>com.github.docker-java</groupId>

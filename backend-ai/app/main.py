@@ -8,9 +8,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import questions, evaluation
-
 load_dotenv()
+
+from app.routers import challenge_gen, evaluation, pr_review, questions, quick_challenge
 
 logging.basicConfig(
     level=logging.INFO,
@@ -118,6 +118,9 @@ app.add_middleware(
 
 app.include_router(questions.router, prefix="/internal", tags=["Questions"])
 app.include_router(evaluation.router, prefix="/internal", tags=["Evaluation"])
+app.include_router(quick_challenge.router, prefix="/internal", tags=["QuickChallenge"])
+app.include_router(pr_review.router, prefix="/internal", tags=["PrReview"])
+app.include_router(challenge_gen.router, prefix="/internal", tags=["ChallengeGen"])
 
 
 @app.get("/health")

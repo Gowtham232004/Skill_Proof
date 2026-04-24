@@ -7,6 +7,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -35,9 +36,11 @@ public class DockerExecutionService {
     private static final Pattern EXPECTED_PATTERN = Pattern.compile("SP_EXPECTED:(\\d+):(.*)");
     private static final Pattern ACTUAL_PATTERN = Pattern.compile("SP_ACTUAL:(\\d+):(.*)");
     private static final Pattern ERROR_PATTERN = Pattern.compile("SP_ERROR:(\\d+):(.*)");
+    private static final Pattern FATAL_PATTERN = Pattern.compile("SP_FATAL:(.*)");
+    private static final String DEFAULT_TEMP_SUBDIR = "skillproof-submissions";
     private static final int MAX_OUTPUT_CHARS = 12000;
 
-    @Value("${challenge.docker.enabled:false}")
+    @Value("${challenge.docker.enabled:true}")
     private boolean dockerEnabled;
 
     @Value("${challenge.docker.timeout-seconds:30}")
@@ -46,8 +49,14 @@ public class DockerExecutionService {
     @Value("${challenge.docker.memory-limit-mb:256}")
     private int defaultMemoryLimitMb;
 
-    @Value("${challenge.docker.temp-dir:.challenge-runner}")
+    @Value("${challenge.docker.temp-dir:/tmp/skillproof-submissions}")
     private String tempDir;
+
+    @Value("${challenge.docker.command:docker}")
+    private String dockerCommand;
+
+    @Value("${challenge.docker.host:}")
+    private String dockerHost;
 
     public DockerExecutionResult evaluateSubmission(
             String language,
@@ -118,7 +127,7 @@ public class DockerExecutionService {
     }
 
     private Path createRunDirectory(String language) throws IOException {
-        Path baseDir = Path.of(tempDir).toAbsolutePath().normalize();
+        Path baseDir = resolveBaseTempDir();
         Files.createDirectories(baseDir);
         return Files.createTempDirectory(baseDir, "challenge-" + language + "-");
     }
@@ -141,6 +150,7 @@ public class DockerExecutionService {
             case "java" -> {
                 Files.writeString(runDir.resolve("Solution.java"), submittedCode, StandardCharsets.UTF_8);
                 Files.writeString(runDir.resolve("TestRunner.java"), buildJavaRunner(safeTests), StandardCharsets.UTF_8);
+                Files.writeString(runDir.resolve("run_java.sh"), buildJavaShellRunner(safeTests.size()), StandardCharsets.UTF_8);
             }
             default -> throw new IOException("Unsupported language runner: " + language);
         }
@@ -151,10 +161,11 @@ public class DockerExecutionService {
                                        int timeoutSecondsValue) throws IOException, InterruptedException {
         String image = dockerImage(language);
         String command = containerCommand(language);
+        String mountSource = toDockerMountSource(runDir.toAbsolutePath().normalize());
         int memoryLimit = Math.max(64, defaultMemoryLimitMb);
 
-        ProcessBuilder processBuilder = new ProcessBuilder(
-            "docker",
+        List<String> dockerCommand = List.of(
+            this.dockerCommand,
             "run",
             "--rm",
             "--network",
@@ -169,7 +180,7 @@ public class DockerExecutionService {
             "--tmpfs",
             "/tmp:rw,size=64m",
             "-v",
-            runDir.toAbsolutePath().toString() + ":/workspace:rw",
+            mountSource + ":/workspace:rw",
             "-w",
             "/workspace",
             image,
@@ -177,6 +188,15 @@ public class DockerExecutionService {
             "-lc",
             command
         );
+
+        ProcessBuilder processBuilder = new ProcessBuilder(dockerCommand);
+        log.debug("Running docker command: {}", formatCommand(dockerCommand));
+        log.debug("Docker run directory: {}", runDir.toAbsolutePath());
+        log.debug("Configured docker host: {}", safe(dockerHost));
+
+        if (!safe(dockerHost).trim().isBlank()) {
+            processBuilder.environment().put("DOCKER_HOST", dockerHost.trim());
+        }
 
         processBuilder.redirectErrorStream(false);
         Process process = processBuilder.start();
@@ -192,18 +212,74 @@ public class DockerExecutionService {
             process.destroyForcibly();
             stdoutThread.join(Duration.ofSeconds(2));
             stderrThread.join(Duration.ofSeconds(2));
-            return new CommandResult(-1, truncate(stdout.toString()), truncate(stderr.toString()), true);
+            return new CommandResult(
+                -1,
+                truncate(stdout.toString()),
+                truncate(stderr.toString()),
+                true,
+                formatCommand(dockerCommand)
+            );
         }
 
         int exitCode = process.exitValue();
         stdoutThread.join(Duration.ofSeconds(2));
         stderrThread.join(Duration.ofSeconds(2));
-        return new CommandResult(exitCode, truncate(stdout.toString()), truncate(stderr.toString()), false);
+        CommandResult result = new CommandResult(
+            exitCode,
+            truncate(stdout.toString()),
+            truncate(stderr.toString()),
+            false,
+            formatCommand(dockerCommand)
+        );
+
+        if (shouldRetryWithWindowsPipe(result)) {
+            log.warn("Retrying docker run with Windows default docker host pipe.");
+            return rerunWithWindowsPipe(dockerCommand);
+        }
+
+        return result;
+    }
+
+    private boolean shouldRetryWithWindowsPipe(CommandResult result) {
+        if (!isWindows() || result == null) {
+            return false;
+        }
+        if (!safe(dockerHost).trim().isBlank()) {
+            return false;
+        }
+        String stderr = safe(result.stderr()).toLowerCase(Locale.ROOT);
+        return stderr.contains("dockerdesktoplinuxengine") || stderr.contains("error during connect");
+    }
+
+    private CommandResult rerunWithWindowsPipe(List<String> command) throws IOException, InterruptedException {
+        ProcessBuilder retryBuilder = new ProcessBuilder(command);
+        retryBuilder.environment().put("DOCKER_HOST", "npipe:////./pipe/docker_engine");
+        retryBuilder.redirectErrorStream(false);
+
+        Process retryProcess = retryBuilder.start();
+        StringBuilder stdout = new StringBuilder();
+        StringBuilder stderr = new StringBuilder();
+        Thread stdoutThread = streamToBuilder(retryProcess.getInputStream(), stdout);
+        Thread stderrThread = streamToBuilder(retryProcess.getErrorStream(), stderr);
+
+        boolean finished = retryProcess.waitFor(Math.max(5, timeoutSeconds), TimeUnit.SECONDS);
+        if (!finished) {
+            retryProcess.destroyForcibly();
+            stdoutThread.join(Duration.ofSeconds(2));
+            stderrThread.join(Duration.ofSeconds(2));
+            return new CommandResult(-1, truncate(stdout.toString()), truncate(stderr.toString()), true, formatCommand(command));
+        }
+
+        int exitCode = retryProcess.exitValue();
+        stdoutThread.join(Duration.ofSeconds(2));
+        stderrThread.join(Duration.ofSeconds(2));
+        return new CommandResult(exitCode, truncate(stdout.toString()), truncate(stderr.toString()), false, formatCommand(command));
     }
 
     private DockerExecutionResult toExecutionResult(CommandResult commandResult,
                                                     List<CreateChallengeRequest.TestCaseInput> testCases) {
         List<TestCaseResult> parsedResults = parseTestCaseResults(commandResult.stdout(), testCases);
+        String fatalError = parseFatalError(commandResult.stdout());
 
         if (commandResult.timedOut()) {
             return new DockerExecutionResult(
@@ -216,14 +292,26 @@ public class DockerExecutionService {
             );
         }
 
-        Matcher matcher = SUMMARY_PATTERN.matcher(commandResult.stdout());
-        if (!matcher.find()) {
+        if (fatalError != null) {
             return new DockerExecutionResult(
                 0,
                 DockerExecutionStatus.ERROR,
-                "Execution failed before test summary could be produced.",
+                "Execution failed before hidden tests could run.",
                 commandResult.stdout(),
-                appendNonEmpty(commandResult.stderr(), "Exit code: " + commandResult.exitCode()),
+                appendNonEmpty(commandResult.stderr(), fatalError),
+                parsedResults
+            );
+        }
+
+        Matcher matcher = SUMMARY_PATTERN.matcher(commandResult.stdout());
+        if (!matcher.find()) {
+            String diagnostics = buildExecutionDiagnostics(commandResult);
+            return new DockerExecutionResult(
+                0,
+                DockerExecutionStatus.ERROR,
+                "Execution failed before summary markers were produced.",
+                commandResult.stdout(),
+                appendNonEmpty(commandResult.stderr(), diagnostics),
                 parsedResults
             );
         }
@@ -248,6 +336,14 @@ public class DockerExecutionService {
             commandResult.stderr(),
             parsedResults
         );
+    }
+
+    private String parseFatalError(String stdout) {
+        Matcher matcher = FATAL_PATTERN.matcher(safe(stdout));
+        if (!matcher.find()) {
+            return null;
+        }
+        return "Runner setup error: " + matcher.group(1);
     }
 
     private List<TestCaseResult> parseTestCaseResults(String stdout,
@@ -305,7 +401,7 @@ public class DockerExecutionService {
             results.add(new TestCaseResult(
                 i,
                 "Test #" + i,
-                statusByCase.getOrDefault(i, "UNKNOWN"),
+                statusByCase.getOrDefault(i, "ERROR"),
                 expectedOutput,
                 actualByCase.getOrDefault(i, ""),
                 errorByCase.getOrDefault(i, "")
@@ -318,7 +414,7 @@ public class DockerExecutionService {
         return switch (language) {
             case "python" -> "python:3.11-alpine";
             case "javascript" -> "node:20-alpine";
-            case "java" -> "eclipse-temurin:21-jdk-alpine";
+            case "java" -> "eclipse-temurin:21-jdk";
             default -> throw new IllegalArgumentException("Unsupported language: " + language);
         };
     }
@@ -327,7 +423,7 @@ public class DockerExecutionService {
         return switch (language) {
             case "python" -> "python test_runner.py";
             case "javascript" -> "node test_runner.js";
-            case "java" -> "javac Solution.java TestRunner.java && java TestRunner";
+            case "java" -> "sh run_java.sh";
             default -> throw new IllegalArgumentException("Unsupported language: " + language);
         };
     }
@@ -350,6 +446,7 @@ public class DockerExecutionService {
 
     private String buildPythonRunner(List<CreateChallengeRequest.TestCaseInput> testCases) {
         StringBuilder sb = new StringBuilder();
+        sb.append("import sys\n\n");
         sb.append("def _normalize(value):\n");
         sb.append("    return str(value if value is not None else '').strip().replace('\\r\\n', '\\n')\n\n");
         sb.append("cases = [\n");
@@ -363,10 +460,16 @@ public class DockerExecutionService {
         sb.append("]\n\n");
         sb.append("try:\n");
         sb.append("    from solution import solve\n");
+        sb.append("    if not callable(solve):\n");
+        sb.append("        raise TypeError('solve is not callable')\n");
         sb.append("except Exception as ex:\n");
-        sb.append("    print('SP_FATAL:' + str(ex))\n");
+        sb.append("    message = f'{type(ex).__name__}:{ex}'\n");
+        sb.append("    print('SP_FATAL:' + message)\n");
+        sb.append("    for idx in range(1, len(cases) + 1):\n");
+        sb.append("        print(f'SP_CASE:{idx}:ERROR')\n");
+        sb.append("        print(f'SP_ERROR:{idx}:{message}')\n");
         sb.append("    print(f'SP_SUMMARY:0/{len(cases)}')\n");
-        sb.append("    raise\n\n");
+        sb.append("    sys.exit(1)\n\n");
         sb.append("passed = 0\n");
         sb.append("for idx, case in enumerate(cases, start=1):\n");
         sb.append("    try:\n");
@@ -471,6 +574,43 @@ public class DockerExecutionService {
         return sb.toString();
     }
 
+    private String buildJavaShellRunner(int caseCount) {
+        int totalCases = Math.max(0, caseCount);
+        StringBuilder sb = new StringBuilder();
+        sb.append("#!/bin/sh\n");
+        sb.append("set +e\n");
+        sb.append("javac Solution.java TestRunner.java 2> compile.err\n");
+        sb.append("if [ $? -ne 0 ]; then\n");
+        sb.append("  msg=$(head -n 1 compile.err | tr '\\r' ' ')\n");
+        sb.append("  if [ -z \"$msg\" ]; then msg='javac compilation failed'; fi\n");
+        sb.append("  echo \"SP_FATAL:${msg}\"\n");
+        sb.append("  i=1\n");
+        sb.append("  while [ $i -le ").append(totalCases).append(" ]; do\n");
+        sb.append("    echo \"SP_CASE:${i}:ERROR\"\n");
+        sb.append("    echo \"SP_ERROR:${i}:CompileError:${msg}\"\n");
+        sb.append("    i=$((i+1))\n");
+        sb.append("  done\n");
+        sb.append("  echo \"SP_SUMMARY:0/").append(totalCases).append("\"\n");
+        sb.append("  cat compile.err 1>&2\n");
+        sb.append("  exit 1\n");
+        sb.append("fi\n");
+        sb.append("java TestRunner\n");
+        sb.append("rc=$?\n");
+        sb.append("if [ $rc -ne 0 ]; then\n");
+        sb.append("  msg='java runtime failed before summary markers'\n");
+        sb.append("  echo \"SP_FATAL:${msg}\"\n");
+        sb.append("  i=1\n");
+        sb.append("  while [ $i -le ").append(totalCases).append(" ]; do\n");
+        sb.append("    echo \"SP_CASE:${i}:ERROR\"\n");
+        sb.append("    echo \"SP_ERROR:${i}:RuntimeError:${msg}\"\n");
+        sb.append("    i=$((i+1))\n");
+        sb.append("  done\n");
+        sb.append("  echo \"SP_SUMMARY:0/").append(totalCases).append("\"\n");
+        sb.append("fi\n");
+        sb.append("exit $rc\n");
+        return sb.toString();
+    }
+
     private String escapePython(String input) {
         return safe(input)
             .replace("\\", "\\\\")
@@ -493,6 +633,64 @@ public class DockerExecutionService {
             .replace("\"", "\\\"")
             .replace("\r", "")
             .replace("\n", "\\n");
+    }
+
+    private Path resolveBaseTempDir() {
+        String configured = safe(tempDir).trim();
+        if (configured.isBlank()) {
+            return Paths.get(System.getProperty("java.io.tmpdir"), DEFAULT_TEMP_SUBDIR).toAbsolutePath().normalize();
+        }
+
+        if (isWindows() && configured.startsWith("/tmp")) {
+            return Paths.get(System.getProperty("java.io.tmpdir"), DEFAULT_TEMP_SUBDIR).toAbsolutePath().normalize();
+        }
+
+        return Path.of(configured).toAbsolutePath().normalize();
+    }
+
+    private boolean isWindows() {
+        String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        return osName.contains("win");
+    }
+
+    private String toDockerMountSource(Path absolutePath) {
+        String normalized = absolutePath.toString().replace('\\', '/');
+        if (!isWindows()) {
+            return normalized;
+        }
+
+        if (normalized.length() >= 3 && Character.isLetter(normalized.charAt(0))
+                && normalized.charAt(1) == ':' && normalized.charAt(2) == '/') {
+            char drive = Character.toLowerCase(normalized.charAt(0));
+            return "/" + drive + normalized.substring(2);
+        }
+        return normalized;
+    }
+
+    private String buildExecutionDiagnostics(CommandResult commandResult) {
+        String stderr = safe(commandResult.stderr()).toLowerCase(Locale.ROOT);
+        String hint = "Exit code: " + commandResult.exitCode() + ". Docker command: " + commandResult.commandSummary();
+
+        if (stderr.contains("cannot connect to the docker daemon")
+                || stderr.contains("error during connect")
+                || stderr.contains("is the docker daemon running")) {
+            return hint + " | Docker daemon is not reachable from the backend process. On Windows set challenge.docker.host=npipe:////./pipe/docker_engine and ensure Docker Desktop is running.";
+        }
+
+        if (stderr.contains("invalid mode") || stderr.contains("invalid volume")
+                || stderr.contains("mount") || stderr.contains("bind source path does not exist")) {
+            return hint + " | Docker volume mount looks invalid for this host path.";
+        }
+
+        if (stderr.contains("permission denied") || stderr.contains("access is denied")) {
+            return hint + " | Docker process lacks permission to read the challenge temp directory.";
+        }
+
+        return hint;
+    }
+
+    private String formatCommand(List<String> command) {
+        return String.join(" ", command);
     }
 
     private void cleanupDirectory(Path path) {
@@ -559,6 +757,6 @@ public class DockerExecutionService {
     ) {
     }
 
-    private record CommandResult(int exitCode, String stdout, String stderr, boolean timedOut) {
+    private record CommandResult(int exitCode, String stdout, String stderr, boolean timedOut, String commandSummary) {
     }
 }
