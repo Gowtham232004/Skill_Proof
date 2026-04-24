@@ -57,19 +57,17 @@ out/
 *.log
 .cache/
 
-# Frontend (has its own repo)
-frontend/
-!frontend/
-frontend/*
-!frontend/src/
-frontend/src/*
-!frontend/src/app/
-frontend/src/app/*
-!frontend/src/app/recruiter/
-frontend/src/app/recruiter/*
-!frontend/src/app/recruiter/[[]token[]]/
-frontend/src/app/recruiter/[[]token[]]/*
-!frontend/src/app/recruiter/[[]token[]]/page.tsx
+# Frontend - exclude build outputs and dependencies only
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.vercel/
+frontend/dist/
+frontend/build-output.txt
+frontend/build.output.js
+frontend/*.out
+frontend/*output*.txt
 
 # Sensitive files with hardcoded secrets
 generate_token.py

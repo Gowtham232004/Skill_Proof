@@ -11,6 +11,7 @@ import java.util.Set;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -53,6 +54,7 @@ public class LiveSessionService {
         User.Role.ADMIN
     );
 
+    @Transactional
     public LiveSessionResponse createLiveSession(Long recruiterId, CreateLiveSessionRequest request) {
         User recruiter = ensureRecruiterRole(recruiterId);
         Badge badge = badgeRepository.findByVerificationToken(request.getBadgeToken())
@@ -125,6 +127,7 @@ public class LiveSessionService {
         return buildLiveSessionResponse(saved, questions.size());
     }
 
+    @Transactional
     public LiveQuestionRevealResponse revealNextQuestion(String sessionCode, Long recruiterId) {
         LiveSession session = findActiveSession(sessionCode);
 
@@ -163,6 +166,7 @@ public class LiveSessionService {
             .build();
     }
 
+    @Transactional
     public LiveAnswerSubmitResponse submitLiveAnswer(String sessionCode, Integer questionNumber, String answerText) {
         LiveSession session = findActiveSession(sessionCode);
 
