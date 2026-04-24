@@ -1,6 +1,7 @@
 package com.skillproof.backend_core.controller;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.skillproof.backend_core.dto.request.CreateRepoGroundedChallengeRequest;
 import com.skillproof.backend_core.dto.request.CreateChallengeRequest;
 import com.skillproof.backend_core.dto.request.SubmitChallengeRequest;
 import com.skillproof.backend_core.dto.response.ChallengeResponse;
@@ -38,6 +40,15 @@ public class ChallengeController {
         return ResponseEntity.ok(challengeService.createChallenge(recruiterId, request));
     }
 
+    @PostMapping("/repo-grounded/generate")
+    public ResponseEntity<ChallengeResponse> createRepoGroundedChallenge(
+            @Valid @RequestBody CreateRepoGroundedChallengeRequest request,
+            Authentication authentication) {
+
+        Long recruiterId = extractAuthenticatedUserId(authentication, "createRepoGroundedChallenge");
+        return ResponseEntity.ok(challengeService.createRepoGroundedChallenge(recruiterId, request));
+    }
+
     @GetMapping("/{challengeId}")
     public ResponseEntity<ChallengeResponse> getChallenge(@PathVariable Long challengeId) {
         return ResponseEntity.ok(challengeService.getChallenge(challengeId));
@@ -60,6 +71,15 @@ public class ChallengeController {
 
         Long recruiterId = extractAuthenticatedUserId(authentication, "getChallengeSubmissions");
         return ResponseEntity.ok(challengeService.getChallengeSubmissions(challengeId, recruiterId));
+    }
+
+    @GetMapping("/{challengeId}/reference-answer")
+    public ResponseEntity<Map<String, Object>> getChallengeReferenceAnswer(
+            @PathVariable Long challengeId,
+            Authentication authentication) {
+
+        Long recruiterId = extractAuthenticatedUserId(authentication, "getChallengeReferenceAnswer");
+        return ResponseEntity.ok(challengeService.getChallengeReferenceAnswer(challengeId, recruiterId));
     }
 
     private Long extractAuthenticatedUserId(Authentication authentication, String action) {
