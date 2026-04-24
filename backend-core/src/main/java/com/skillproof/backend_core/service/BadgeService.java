@@ -8,9 +8,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillproof.backend_core.dto.response.BadgeResponse;
 import com.skillproof.backend_core.model.Answer;
 import com.skillproof.backend_core.model.Badge;
+import com.skillproof.backend_core.model.ChallengeSubmission;
 import com.skillproof.backend_core.model.VerificationSession;
 import com.skillproof.backend_core.repository.AnswerRepository;
 import com.skillproof.backend_core.repository.BadgeRepository;
+import com.skillproof.backend_core.repository.ChallengeSubmissionRepository;
 import com.skillproof.backend_core.repository.QuestionRepository;
 import com.skillproof.backend_core.repository.VerificationSessionRepository;
 import com.skillproof.backend_core.util.HmacUtil;
@@ -34,6 +36,7 @@ public class BadgeService {
     private final VerificationSessionRepository sessionRepository;
     private final QuestionRepository questionRepository;
     private final AnswerRepository answerRepository;
+    private final ChallengeSubmissionRepository challengeSubmissionRepository;
     private final HmacUtil hmacUtil;
     private final ObjectMapper objectMapper;
 
@@ -116,7 +119,7 @@ public class BadgeService {
     }
 
     private BadgeResponse getBadgeByToken(String token, boolean includeFullAnswers) {
-        Badge badge = badgeRepository.findByVerificationToken(token)
+        Badge badge = badgeRepository.findByVerificationTokenWithUserAndSession(token)
             .orElse(null);
 
         if (badge == null || !badge.getIsActive()) {
@@ -136,7 +139,7 @@ public class BadgeService {
             );
         int totalQuestions = (int) questionRepository.countBySessionId(session.getId());
         List<Answer> answers = answerRepository
-            .findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(session.getId());
+            .findBySessionIdWithQuestionOrderByQuestionNumberAsc(session.getId());
 
         List<BadgeResponse.QuestionResultDto> questionResults = answers.stream()
             .map(answer -> toQuestionResult(answer, includeFullAnswers))
@@ -153,6 +156,15 @@ public class BadgeService {
         int adjustedScore = badge.getIntegrityAdjustedScore() != null
             ? badge.getIntegrityAdjustedScore()
             : Objects.requireNonNullElse(badge.getOverallScore(), 0);
+        BadgeResponse.ExecutionBackedSignalDto executionSignal = buildExecutionBackedSignal(
+            badge.getUser().getId(),
+            adjustedScore
+        );
+        BadgeResponse.AssistLikelihoodDto assistLikelihood = buildAssistLikelihood(
+            answers,
+            badge,
+            adjustedScore
+        );
         int penaltyTotal = Objects.requireNonNullElse(
             badge.getIntegrityPenaltyTotal(),
             Math.max(0, technicalScore - adjustedScore)
@@ -192,8 +204,11 @@ public class BadgeService {
             .overallScore(adjustedScore)
             .technicalScore(technicalScore)
             .integrityAdjustedScore(adjustedScore)
+            .executionAdjustedScore(executionSignal.getExecutionAdjustedScore())
             .integrityPenaltyTotal(penaltyTotal)
             .integrityPenaltyBreakdown(penaltyBreakdown)
+            .executionBackedSignal(executionSignal)
+            .assistLikelihood(assistLikelihood)
             .scoreByQuestionType(scoreByQuestionType)
             .weightedScoringEnabled(weightedScoringEnabled)
             .codeWeightPercent(codeWeightPercent)
@@ -216,10 +231,130 @@ public class BadgeService {
             .evaluationComplete(evaluationComplete)
             .confidenceExplanation(buildConfidenceExplanation(badge, skippedCount, answeredCount, evaluationComplete))
             .answerRevealAvailable(true)
+            .recruiterDecisionStatus(badge.getRecruiterDecisionStatus())
+            .recruiterDecisionReason(badge.getRecruiterDecisionReason())
+            .recruiterDecisionNotes(badge.getRecruiterDecisionNotes())
+            .recruiterDecisionBy(badge.getRecruiterDecisionBy())
+            .recruiterDecisionAt(badge.getRecruiterDecisionAt())
             .questionResults(questionResults)
             .repoAttemptCount(repoAttemptCount)
             .issuedAt(badge.getIssuedAt())
             .build();
+    }
+
+    private BadgeResponse.AssistLikelihoodDto buildAssistLikelihood(List<Answer> answers,
+                                                                    Badge badge,
+                                                                    int adjustedScore) {
+        List<String> reasons = new java.util.ArrayList<>();
+        int score = 0;
+
+        int avgAnswerSeconds = Objects.requireNonNullElse(badge.getAvgAnswerSeconds(), 0);
+        int pasteCount = Objects.requireNonNullElse(badge.getPasteCount(), 0);
+        int copyEvents = readPenaltyBreakdown(badge.getIntegrityPenaltyBreakdown())
+            .getOrDefault("copyEvents", 0);
+
+        if (avgAnswerSeconds > 0 && avgAnswerSeconds <= 25 && adjustedScore >= 75) {
+            score += 3;
+            reasons.add("Very short average answer time with high score suggests potential assistant insertion.");
+        }
+
+        if (pasteCount >= 3 || copyEvents >= 2) {
+            score += 2;
+            reasons.add("Repeated paste/copy events indicate external drafting assistance may have been used.");
+        }
+
+        long lowDepthHighAccuracyCount = answers.stream()
+            .filter(answer -> !isSkipped(answer))
+            .filter(answer -> Objects.requireNonNullElse(answer.getAccuracyScore(), 0) >= 8)
+            .filter(answer -> Objects.requireNonNullElse(answer.getDepthScore(), 0) <= 4)
+            .count();
+        if (lowDepthHighAccuracyCount >= 2) {
+            score += 4;
+            reasons.add("Multiple answers are high-accuracy but low-depth, a common assisted-response pattern.");
+        }
+
+        if (avgAnswerSeconds >= 150 && adjustedScore >= 85) {
+            score += 2;
+            reasons.add("Long idle windows followed by strong answers can indicate off-screen assistant usage.");
+        }
+
+        String level = score >= 7
+            ? "HIGH"
+            : score >= 4 ? "MEDIUM" : "LOW";
+        if (score == 0) {
+            reasons.add("No strong assistance heuristics triggered in this session.");
+        }
+
+        return BadgeResponse.AssistLikelihoodDto.builder()
+            .level(level)
+            .score(score)
+            .reasons(reasons)
+            .advisoryOnly(true)
+            .build();
+    }
+
+    private BadgeResponse.ExecutionBackedSignalDto buildExecutionBackedSignal(Long candidateId, int adjustedScore) {
+        List<ChallengeSubmission> recent = challengeSubmissionRepository
+            .findByCandidateIdOrderByCreatedAtDesc(candidateId)
+            .stream()
+            .limit(10)
+            .toList();
+
+        int total = recent.size();
+        int passed = (int) recent.stream().filter(this::isPassedExecution).count();
+        int failed = (int) recent.stream().filter(this::isFailedExecution).count();
+        int errors = (int) recent.stream().filter(this::isErrorExecution).count();
+        int timeouts = (int) recent.stream().filter(this::isTimeoutExecution).count();
+        int passRate = total == 0 ? 0 : (int) Math.round((passed * 100.0) / total);
+        int avgScore = total == 0 ? 0 : (int) Math.round(
+            recent.stream().mapToInt(s -> Objects.requireNonNullElse(s.getScore(), 0)).average().orElse(0)
+        );
+
+        int penalty = 0;
+        int unstableRate = total == 0 ? 0 : (int) Math.round(((errors + timeouts) * 100.0) / total);
+        if (total > 0 && passRate < 50) {
+            penalty += 6;
+        }
+        if (total > 0 && unstableRate >= 35) {
+            penalty += 4;
+        }
+
+        int executionAdjusted = Math.max(0, adjustedScore - penalty);
+        String latestStatus = total == 0 ? "NONE" : recent.get(0).getStatus().name();
+        String signalLevel = total == 0
+            ? "NO_SIGNAL"
+            : penalty >= 8 ? "HIGH_RISK" : penalty >= 4 ? "MEDIUM_RISK" : "LOW_RISK";
+
+        return BadgeResponse.ExecutionBackedSignalDto.builder()
+            .totalAttempts(total)
+            .passedCount(passed)
+            .failedCount(failed)
+            .errorCount(errors)
+            .timeoutCount(timeouts)
+            .passRatePercent(passRate)
+            .avgExecutionScore(avgScore)
+            .latestStatus(latestStatus)
+            .executionPenalty(penalty)
+            .executionAdjustedScore(executionAdjusted)
+            .signalLevel(signalLevel)
+            .build();
+    }
+
+    private boolean isPassedExecution(ChallengeSubmission submission) {
+        return submission.getStatus() == ChallengeSubmission.SubmissionStatus.PASSED;
+    }
+
+    private boolean isFailedExecution(ChallengeSubmission submission) {
+        return submission.getStatus() == ChallengeSubmission.SubmissionStatus.FAILED;
+    }
+
+    private boolean isErrorExecution(ChallengeSubmission submission) {
+        return submission.getStatus() == ChallengeSubmission.SubmissionStatus.ERROR;
+    }
+
+    private boolean isTimeoutExecution(ChallengeSubmission submission) {
+        String stderr = submission.getStderr() == null ? "" : submission.getStderr().toLowerCase(Locale.ROOT);
+        return stderr.contains("timed out") || stderr.contains("timeout");
     }
 
     private BadgeResponse.QuestionResultDto toQuestionResult(Answer answer, boolean includeFullAnswers) {
