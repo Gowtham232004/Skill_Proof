@@ -34,8 +34,11 @@ public class BadgeResponse {
     private Integer overallScore;
     private Integer technicalScore;
     private Integer integrityAdjustedScore;
+    private Integer executionAdjustedScore;
     private Integer integrityPenaltyTotal;
     private Map<String, Integer> integrityPenaltyBreakdown;
+    private ExecutionBackedSignalDto executionBackedSignal;
+    private AssistLikelihoodDto assistLikelihood;
     private Map<String, Integer> scoreByQuestionType;
     private Boolean weightedScoringEnabled;
     private Integer codeWeightPercent;
@@ -60,6 +63,11 @@ public class BadgeResponse {
     private Boolean evaluationComplete;
     private String confidenceExplanation;
     private Boolean answerRevealAvailable;
+    private String recruiterDecisionStatus;
+    private String recruiterDecisionReason;
+    private String recruiterDecisionNotes;
+    private String recruiterDecisionBy;
+    private LocalDateTime recruiterDecisionAt;
 
     // Question results — shown as score breakdown
     private List<QuestionResultDto> questionResults;
@@ -98,5 +106,30 @@ public class BadgeResponse {
         private Boolean skipped;
         private Integer answerLength;
         private String answerExcerpt;
+    }
+
+    @Data
+    @Builder
+    public static class ExecutionBackedSignalDto {
+        private Integer totalAttempts;
+        private Integer passedCount;
+        private Integer failedCount;
+        private Integer errorCount;
+        private Integer timeoutCount;
+        private Integer passRatePercent;
+        private Integer avgExecutionScore;
+        private String latestStatus;
+        private Integer executionPenalty;
+        private Integer executionAdjustedScore;
+        private String signalLevel;
+    }
+
+    @Data
+    @Builder
+    public static class AssistLikelihoodDto {
+        private String level;
+        private Integer score;
+        private List<String> reasons;
+        private Boolean advisoryOnly;
     }
 }
