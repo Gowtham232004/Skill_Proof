@@ -8,20 +8,51 @@ jwt:
 spring:
   config:
     import: optional:file:.env[.properties]
+  devtools:
+    restart:
+      enabled: ${DEVTOOLS_RESTART_ENABLED:false}
+      poll-interval: 2s
+      quiet-period: 1s
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/skillproof?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    url: ${DB_URL:jdbc:mysql://localhost:3307/skillproof?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:skillproof_user}
     password: ${DB_PASSWORD:}
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
 ai-service:
   secret: ${AI_SERVICE_SECRET:dev-internal-secret-change-me}
 
+notification:
+  email:
+    enabled: ${NOTIFICATION_EMAIL_ENABLED:true}
+    from: ${NOTIFICATION_EMAIL_FROM:noreply@skillproof.dev}
+
+daily:
+  api-key: ${DAILY_API_KEY:}
+  base-url: ${DAILY_BASE_URL:https://api.daily.co/v1}
+
+video:
+  provider: ${VIDEO_PROVIDER:auto}
+  jitsi-base-url: ${JITSI_BASE_URL:https://meet.jit.si}
+
 challenge:
   docker:
-    enabled: ${CHALLENGE_DOCKER_ENABLED:false}
+    enabled: ${CHALLENGE_DOCKER_ENABLED:true}
     timeout-seconds: ${CHALLENGE_DOCKER_TIMEOUT_SECONDS:30}
     memory-limit-mb: ${CHALLENGE_DOCKER_MEMORY_LIMIT_MB:256}
-    temp-dir: ${CHALLENGE_DOCKER_TEMP_DIR:.challenge-runner}
+    temp-dir: ${CHALLENGE_DOCKER_TEMP_DIR:${java.io.tmpdir}/skillproof-submissions}
+    command: ${CHALLENGE_DOCKER_COMMAND:docker}
+    host: ${CHALLENGE_DOCKER_HOST:}
 
 phase2:
   mixed-questions-enabled: ${PHASE2_MIXED_QUESTIONS_ENABLED:false}
@@ -34,3 +65,10 @@ phase2:
 testing:
   bypass-verification-limit: ${BYPASS_VERIFICATION_LIMIT:true}
   skip-repo-cooldown: ${SKIP_REPO_COOLDOWN:true}
+
+http:
+  client:
+    connect-timeout: ${HTTP_CONNECT_TIMEOUT:10s}
+    read-timeout: ${HTTP_READ_TIMEOUT:30s}
+    proxy-host: ${HTTP_PROXY_HOST:}
+    proxy-port: ${HTTP_PROXY_PORT:0}

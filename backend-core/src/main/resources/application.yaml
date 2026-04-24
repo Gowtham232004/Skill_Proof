@@ -8,7 +8,7 @@ spring:
     active: local
 
   datasource:
-    url: jdbc:mysql://localhost:3306/skillproof?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    url: jdbc:mysql://localhost:3307/skillproof?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
     username: skillproof_user
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -16,10 +16,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update          # auto-creates/updates tables on startup
+    open-in-view: false
     show-sql: true
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
 
   # Disable default Spring Security form login — we handle auth ourselves
@@ -45,12 +45,26 @@ ai-service:
   url: http://localhost:8000
   secret: ${AI_SERVICE_SECRET}
 
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+
+notification:
+  email:
+    enabled: ${NOTIFICATION_EMAIL_ENABLED:true}
+    from: ${NOTIFICATION_EMAIL_FROM:noreply@skillproof.dev}
+
+daily:
+  api-key: ${DAILY_API_KEY:}
+  base-url: ${DAILY_BASE_URL:https://api.daily.co/v1}
+
 challenge:
   docker:
-    enabled: ${CHALLENGE_DOCKER_ENABLED:false}
+    enabled: ${CHALLENGE_DOCKER_ENABLED:true}
     timeout-seconds: ${CHALLENGE_DOCKER_TIMEOUT_SECONDS:30}
     memory-limit-mb: ${CHALLENGE_DOCKER_MEMORY_LIMIT_MB:256}
-    temp-dir: ${CHALLENGE_DOCKER_TEMP_DIR:.challenge-runner}
+    temp-dir: ${CHALLENGE_DOCKER_TEMP_DIR:${java.io.tmpdir}/skillproof-submissions}
+    command: ${CHALLENGE_DOCKER_COMMAND:docker}
+    host: ${CHALLENGE_DOCKER_HOST:}
 
 phase2:
   mixed-questions-enabled: false
@@ -76,4 +90,11 @@ logging:
   level:
     com.skillproof: DEBUG
     org.springframework.security: DEBUG
+
+http:
+  client:
+    connect-timeout: ${HTTP_CONNECT_TIMEOUT:10s}
+    read-timeout: ${HTTP_READ_TIMEOUT:30s}
+    proxy-host: ${HTTP_PROXY_HOST:}
+    proxy-port: ${HTTP_PROXY_PORT:0}
 
