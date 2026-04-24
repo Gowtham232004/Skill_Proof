@@ -108,6 +108,21 @@ public class Badge {
     @Column(name = "follow_up_results_json", columnDefinition = "TEXT")
     private String followUpResultsJson;
 
+    @Column(name = "recruiter_decision_status", length = 32)
+    private String recruiterDecisionStatus;
+
+    @Column(name = "recruiter_decision_reason", length = 255)
+    private String recruiterDecisionReason;
+
+    @Column(name = "recruiter_decision_notes", columnDefinition = "TEXT")
+    private String recruiterDecisionNotes;
+
+    @Column(name = "recruiter_decision_by", length = 120)
+    private String recruiterDecisionBy;
+
+    @Column(name = "recruiter_decision_at")
+    private LocalDateTime recruiterDecisionAt;
+
     // Can be revoked by the developer
     @Column(name = "is_active")
     @Builder.Default
