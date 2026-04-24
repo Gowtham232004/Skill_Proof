@@ -17,6 +17,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import com.skillproof.backend_core.dto.response.GitHubUserResponse;
@@ -69,11 +70,8 @@ public class GitHubService {
             log.info("🔐 Exchanging GitHub code for token...");
             log.info("   Client ID: {}", clientId);
             log.info("   Redirect URI: {}", redirectUri);
-            
-            @SuppressWarnings("unchecked")
-            ResponseEntity<Map<String, Object>> response = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) restTemplate.postForEntity(
-                GITHUB_OAUTH + "/login/oauth/access_token", request, Map.class
-            );
+
+            ResponseEntity<Map<String, Object>> response = postForTokenWithSingleRetry(request);
 
             Map<String, Object> responseBody = response.getBody();
             log.info("📝 GitHub response: {}", responseBody);
@@ -111,8 +109,16 @@ public class GitHubService {
             return (String) responseBody.get("access_token");
         } catch (ApiException ex) {
             throw ex;
+        } catch (ResourceAccessException ex) {
+            log.error("GitHub token exchange network error: {}", ex.getMessage());
+            throw new ApiException(
+                HttpStatus.BAD_GATEWAY,
+                "GITHUB_TOKEN_EXCHANGE_TIMEOUT",
+                "Unable to reach GitHub OAuth endpoint. Please retry.",
+                Map.of("reason", "Network timeout while contacting GitHub")
+            );
         } catch (Exception e) {
-            log.error("❌ GitHub token exchange error: {}", e.getMessage());
+            log.error("GitHub token exchange error: {}", e.getMessage());
             throw new ApiException(
                 HttpStatus.BAD_GATEWAY,
                 "GITHUB_TOKEN_EXCHANGE_FAILED",
@@ -120,6 +126,24 @@ public class GitHubService {
                 Map.of("reason", e.getMessage() == null ? "unknown" : e.getMessage())
             );
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private ResponseEntity<Map<String, Object>> postForTokenWithSingleRetry(
+            HttpEntity<Map<String, String>> request) {
+        String tokenUrl = GITHUB_OAUTH + "/login/oauth/access_token";
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                return (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) restTemplate
+                    .postForEntity(tokenUrl, request, Map.class);
+            } catch (ResourceAccessException ex) {
+                if (attempt == 2) {
+                    throw ex;
+                }
+                log.warn("GitHub token exchange attempt {} failed: {}. Retrying once...", attempt, ex.getMessage());
+            }
+        }
+        throw new IllegalStateException("Unreachable token exchange retry state");
     }
 
     public GitHubUserResponse getUserInfo(String accessToken) {

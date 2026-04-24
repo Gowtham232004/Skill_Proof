@@ -3,6 +3,7 @@ package com.skillproof.backend_core.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
@@ -23,6 +24,7 @@ import com.skillproof.backend_core.model.User;
 import com.skillproof.backend_core.model.VerificationSession;
 import com.skillproof.backend_core.repository.AnswerRepository;
 import com.skillproof.backend_core.repository.BadgeRepository;
+import com.skillproof.backend_core.repository.ChallengeSubmissionRepository;
 import com.skillproof.backend_core.repository.QuestionRepository;
 import com.skillproof.backend_core.repository.VerificationSessionRepository;
 import com.skillproof.backend_core.util.HmacUtil;
@@ -43,6 +45,9 @@ class BadgeServiceTests {
     private AnswerRepository answerRepository;
 
     @Mock
+    private ChallengeSubmissionRepository challengeSubmissionRepository;
+
+    @Mock
     private HmacUtil hmacUtil;
 
     @Test
@@ -52,6 +57,7 @@ class BadgeServiceTests {
             sessionRepository,
             questionRepository,
             answerRepository,
+            challengeSubmissionRepository,
             hmacUtil,
             new ObjectMapper()
         );
@@ -125,6 +131,8 @@ class BadgeServiceTests {
 
         when(answerRepository.findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(10L))
             .thenReturn(java.util.List.of(answer));
+        when(challengeSubmissionRepository.findByCandidateIdOrderByCreatedAtDesc(anyLong()))
+            .thenReturn(List.of());
 
         BadgeResponse response = badgeService.getBadgeByToken("sp_token");
 
@@ -151,6 +159,7 @@ class BadgeServiceTests {
             sessionRepository,
             questionRepository,
             answerRepository,
+            challengeSubmissionRepository,
             hmacUtil,
             new ObjectMapper()
         );
@@ -230,6 +239,8 @@ class BadgeServiceTests {
 
         when(answerRepository.findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(101L))
             .thenReturn(List.of(codeAnswer, conceptualAnswer));
+        when(challengeSubmissionRepository.findByCandidateIdOrderByCreatedAtDesc(anyLong()))
+            .thenReturn(List.of());
 
         BadgeResponse response = badgeService.getBadgeByToken("mixed_token");
 
@@ -245,9 +256,12 @@ class BadgeServiceTests {
             sessionRepository,
             questionRepository,
             answerRepository,
+            challengeSubmissionRepository,
             hmacUtil,
             new ObjectMapper()
         );
+        when(challengeSubmissionRepository.findByCandidateIdOrderByCreatedAtDesc(anyLong()))
+            .thenReturn(List.of());
 
         when(badgeRepository.findByVerificationToken("missing")).thenReturn(Optional.empty());
 
@@ -264,6 +278,7 @@ class BadgeServiceTests {
             sessionRepository,
             questionRepository,
             answerRepository,
+            challengeSubmissionRepository,
             hmacUtil,
             new ObjectMapper()
         );
@@ -298,6 +313,8 @@ class BadgeServiceTests {
         when(questionRepository.countBySessionId(230L)).thenReturn(0L);
         when(answerRepository.findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(230L))
             .thenReturn(List.of());
+        when(challengeSubmissionRepository.findByCandidateIdOrderByCreatedAtDesc(anyLong()))
+            .thenReturn(List.of());
 
         BadgeResponse response = badgeService.getBadgeByToken("followup_token");
 
@@ -316,6 +333,7 @@ class BadgeServiceTests {
             sessionRepository,
             questionRepository,
             answerRepository,
+            challengeSubmissionRepository,
             hmacUtil,
             new ObjectMapper()
         );
@@ -348,6 +366,8 @@ class BadgeServiceTests {
         when(questionRepository.countBySessionId(9L)).thenReturn(0L);
         when(answerRepository.findByQuestionSessionIdOrderByQuestionQuestionNumberAsc(9L))
             .thenReturn(java.util.List.of());
+        when(challengeSubmissionRepository.findByCandidateIdOrderByCreatedAtDesc(anyLong()))
+            .thenReturn(List.of());
 
         BadgeResponse response = badgeService.getBadgeByToken("bad_frameworks");
 
