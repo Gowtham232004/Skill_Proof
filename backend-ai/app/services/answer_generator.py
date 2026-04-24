@@ -10,7 +10,35 @@ from app.utils.prompt_templates import ANSWER_EVALUATION_PROMPT, REFERENCE_ANSWE
 
 logger = logging.getLogger(__name__)
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+_groq_client = None
+
+
+def _get_groq_client() -> Groq:
+    global _groq_client
+    if _groq_client is not None:
+        return _groq_client
+
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+
+    _groq_client = Groq(api_key=api_key)
+    return _groq_client
+
+
+def _call_llm(
+    prompt: str,
+    max_tokens: int = 220,
+    temperature: float = 0.2,
+    model: str = "llama-3.1-8b-instant",
+) -> str:
+    response = _get_groq_client().chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content or ""
 
 # Rate limiting: wait between API calls
 REQUEST_DELAY = 0.3  # 300ms between requests
@@ -175,7 +203,7 @@ def evaluate_answers(questions_and_answers: list):
                     if attempt == 0:
                         time.sleep(REQUEST_DELAY)
                     
-                    response = client.chat.completions.create(
+                    response = _get_groq_client().chat.completions.create(
                         model="llama-3.1-8b-instant",
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.2,
@@ -292,7 +320,7 @@ def generate_reference_answer(question_text: str, file_reference: str, code_cont
         code_context=(code_context or "")[:3500],
     )
 
-    response = client.chat.completions.create(
+    response = _get_groq_client().chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
